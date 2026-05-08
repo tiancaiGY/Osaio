@@ -5,10 +5,10 @@ from pages.base_page import BasePage
 
 class HomePage(BasePage):
     # 元素定位 - 需要用 Appium Inspector 确认实际 ID
-    ADD_DEVICE_BTN = (AppiumBy.ID, "com.osaio.app:id/btn_add_device")
-    DEVICE_LIST = (AppiumBy.ID, "com.osaio.app:id/rv_device_list")
-    TAB_HOME = (AppiumBy.ID, "com.osaio.app:id/tab_home")
-    TAB_MESSAGE = (AppiumBy.ID, "com.osaio.app:id/tab_message")
+    ADD_DEVICE_BTN = (AppiumBy.ACCESSIBILITY_ID, "new UiSelector().className(\"android.view.ViewGroup\").instance(39)")
+    DEVICE_LIST = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"All Types\")")
+    TAB_HOME = (AppiumBy.ACCESSIBILITY_ID, "Home, tab, 1 of 3")
+    TAB_MESSAGE = (AppiumBy.ACCESSIBILITY_ID, "Event, tab, 2 of 3")
     TAB_MINE = (AppiumBy.ID, "com.osaio.app:id/tab_mine")
 
     def is_home_displayed(self):

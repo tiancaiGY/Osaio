@@ -1,7 +1,7 @@
 android:
   platformName: Android
   automationName: UiAutomator2
-  appPackage: com.afar.osaio 
+  appPackage: com.afar.osaio
   appActivity: com.yrcx.xuser.ui.activity.YRSplashActivity
   noReset: true
   newCommandTimeout: 300

@@ -20,11 +20,12 @@ def create_driver(platform="android"):
 
     url = f"http://{server['host']}:{server['port']}/wd/hub"
 
+    # 根据平台创建 options
     if platform == "android":
         options = UiAutomator2Options().load_capabilities(caps)
     else:
         options = XCUITestOptions().load_capabilities(caps)
-
+    
     driver = webdriver.Remote(url, options=options)
     driver.implicitly_wait(10)
     return driver
