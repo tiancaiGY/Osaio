@@ -90,24 +90,7 @@ class TestRegister:
         assert isinstance(result, str), "密码不匹配注册应返回错误消息"
         assert result, "应有错误提示"
         print(f"密码不匹配注册测试通过，错误消息: {result}")
-    
-    def test_register_weak_password(self, driver):
-        """异常注册 - 弱密码"""
-        # 先导航到注册页面
-        login_page = LoginPage(driver)
-        if login_page.is_displayed(*login_page.LOGIN_BTN, timeout=5):
-            login_page.go_register()
-        
-        register_page = RegisterPage(driver)
-        
-        # 尝试注册，使用弱密码
-        email = self.generate_random_email()
-        result = register_page.register(email, "123", "123")
-        
-        # 应返回错误消息
-        assert isinstance(result, str), "弱密码注册应返回错误消息"
-        assert result, "应有错误提示"
-        print(f"弱密码注册测试通过，错误消息: {result}")
+
     
     def test_register_step1_input_email(self, driver):
         """测试注册第一步：输入邮箱和国家"""

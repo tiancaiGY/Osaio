@@ -11,6 +11,7 @@ class HomePage(BasePage):
     TAB_MESSAGE = (AppiumBy.ACCESSIBILITY_ID, "Event, tab, 2 of 3")
     TAB_MINE = (AppiumBy.ID, "com.osaio.app:id/tab_mine")
 
+
     def is_home_displayed(self):
         return self.is_displayed(*self.TAB_HOME)
 
