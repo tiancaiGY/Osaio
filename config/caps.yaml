@@ -1,0 +1,19 @@
+android:
+  platformName: Android
+  automationName: UiAutomator2
+  appPackage: com.afar.osaio
+  appActivity: com.yrcx.xuser.ui.activity.YRSplashActivity
+  noReset: true
+  newCommandTimeout: 300
+  deviceName: 2C011FDH3003AC
+
+ios:
+  platformName: iOS
+  automationName: XCUITest
+  bundleId: com.osaio.app
+  noReset: true
+  newCommandTimeout: 300
+
+appium_server:
+  host: "127.0.0.1"
+  port: 4723
