@@ -43,7 +43,7 @@ for t in ["让我们开始", "开始", "Start", "Get Started"]:
 d.click(781, 483)
 time.sleep(2)
 
-email = "testb11@mailto.plus"
+email = "testb14@mailto.plus"
 e = d(className="android.widget.EditText", instance=0)
 e.clear_text(); time.sleep(0.3)
 e.set_text(email); time.sleep(2)
