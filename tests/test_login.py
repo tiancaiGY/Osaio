@@ -23,11 +23,7 @@ class TestLogin:
         # 可以根据实际错误消息进行更具体的断言
         # assert "incorrect" in error_message.lower() or "invalid" in error_message.lower()
 
-    def test_go_register(self, driver):
-        """跳转注册页面"""
-        login_page = LoginPage(driver)
-        login_page.go_register()
-        # TODO: 验证跳转到注册页
+
     def test_login_success(self, driver):
         """正常登录 - 正确账号密码"""
         login_page = LoginPage(driver)
@@ -50,4 +46,8 @@ class TestLogin:
 
 
 
-
+    def test_go_register(self, driver):
+        """跳转注册页面"""
+        login_page = LoginPage(driver)
+        login_page.go_register()
+        # TODO: 验证跳转到注册页

@@ -1,0 +1,260 @@
+{
+  "title": "Osaio UI 自动化测试报告",
+  "generated_at": "2026-05-26T18:49:38.302873",
+  "statistics": {
+    "total_tests": 6,
+    "passed_tests": 4,
+    "failed_tests": 1,
+    "skipped_tests": 1,
+    "error_tests": 0,
+    "pass_rate": 66.67,
+    "total_duration": 45.5,
+    "start_time": "2026-05-26T18:49:38.299883",
+    "end_time": "2026-05-26T18:49:38.300879"
+  },
+  "test_results": [
+    {
+      "test_name": "tests/test_main.py::TestMainFlow::test_main_flow_login_and_device_live_view",
+      "status": "passed",
+      "duration": 8.5,
+      "error_message": null,
+      "screenshot_path": null,
+      "steps": [
+        {
+          "step_name": "打开APP",
+          "status": "passed",
+          "duration": 1.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "输入账号密码",
+          "status": "passed",
+          "duration": 2.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "点击登录按钮",
+          "status": "passed",
+          "duration": 0.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "验证首页显示",
+          "status": "passed",
+          "duration": 1.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "检查设备列表",
+          "status": "passed",
+          "duration": 2.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "进入设备页面",
+          "status": "passed",
+          "duration": 1.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "点击实时查看",
+          "status": "passed",
+          "duration": 1.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        }
+      ],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    },
+    {
+      "test_name": "tests/test_login.py::TestLogin::test_login_wrong_password",
+      "status": "failed",
+      "duration": 3.2,
+      "error_message": "AssertionError: Expected error message but found none",
+      "screenshot_path": null,
+      "steps": [
+        {
+          "step_name": "打开登录页面",
+          "status": "passed",
+          "duration": 1.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "输入错误密码",
+          "status": "passed",
+          "duration": 0.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "点击登录按钮",
+          "status": "passed",
+          "duration": 0.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "验证错误提示",
+          "status": "failed",
+          "duration": 1.2,
+          "message": "未找到错误提示元素",
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        }
+      ],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    },
+    {
+      "test_name": "tests/test_register.py::TestRegister::test_register_complete_flow_with_mock_code",
+      "status": "skipped",
+      "duration": 0.1,
+      "error_message": "需要真实验证码才能测试",
+      "screenshot_path": null,
+      "steps": [],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    },
+    {
+      "test_name": "tests/test_main.py::TestMainFlow::test_main_flow_with_device_operation",
+      "status": "passed",
+      "duration": 12.3,
+      "error_message": null,
+      "screenshot_path": null,
+      "steps": [
+        {
+          "step_name": "用户登录",
+          "status": "passed",
+          "duration": 3.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "首页导航",
+          "status": "passed",
+          "duration": 2.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "设备相关操作",
+          "status": "passed",
+          "duration": 4.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "消息页面",
+          "status": "passed",
+          "duration": 1.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "个人中心",
+          "status": "passed",
+          "duration": 1.8,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        }
+      ],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    },
+    {
+      "test_name": "tests/test_main.py::TestMainFlow::test_error_handling_in_main_flow",
+      "status": "passed",
+      "duration": 5.6,
+      "error_message": null,
+      "screenshot_path": null,
+      "steps": [
+        {
+          "step_name": "测试错误密码登录",
+          "status": "passed",
+          "duration": 2.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "测试空账号登录",
+          "status": "passed",
+          "duration": 1.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "测试正确登录恢复",
+          "status": "passed",
+          "duration": 2.1,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        }
+      ],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    },
+    {
+      "test_name": "tests/test_main.py::TestMainFlow::test_performance_of_main_flow",
+      "status": "passed",
+      "duration": 15.8,
+      "error_message": null,
+      "screenshot_path": null,
+      "steps": [
+        {
+          "step_name": "测量登录耗时",
+          "status": "passed",
+          "duration": 3.5,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "测量首页加载耗时",
+          "status": "passed",
+          "duration": 2.2,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "测量导航耗时",
+          "status": "passed",
+          "duration": 8.1,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        },
+        {
+          "step_name": "性能断言",
+          "status": "passed",
+          "duration": 2.0,
+          "message": null,
+          "screenshot": null,
+          "timestamp": "2026-05-26T18:49:38.300879"
+        }
+      ],
+      "timestamp": "2026-05-26T18:49:38.300879"
+    }
+  ]
+}
