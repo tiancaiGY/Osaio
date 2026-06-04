@@ -41,3 +41,4 @@ debug_page_source.xml
 allure-results/
 allure-report/
 test-results/
+debug.py
