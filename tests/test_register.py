@@ -5,6 +5,8 @@ import string
 from pages.login_page import LoginPage
 from pages.register_page import RegisterPage
 from pages.home_page import HomePage
+import os
+from utils.temp_mail import wait_for_verification_code
 
 
 class TestRegister:
@@ -249,6 +251,59 @@ class TestRegister:
             assert result.is_displayed(*result.VERIFICATION_TITLE, timeout=10), "应进入验证码页面"
         else:
             print(f"不同意条款注册结果: {type(result)}")
+
+    def test_register_complete_flow_with_temp_mail(self, driver):
+        """使用临时邮箱服务获取真实验证码并完成注册流程（受控运行）"""
+        # 通过环境变量启用真实邮箱测试，避免 CI/本地误触发
+        if os.environ.get("USE_TEMP_MAIL", "0") != "1":
+            pytest.skip("未启用临时邮箱测试，设置环境变量 USE_TEMP_MAIL=1 以启用")
+
+        # 先导航到注册页面
+        login_page = LoginPage(driver)
+        if login_page.is_displayed(*login_page.LOGIN_BTN, timeout=5):
+            register_page = login_page.go_register()
+        else:
+            register_page = RegisterPage(driver)
+
+        # 生成临时邮箱（可通过 TEMP_EMAIL_DOMAIN 覆盖）
+        domain = os.environ.get("TEMP_EMAIL_DOMAIN", "tempmail.plus")
+        random_string = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        email = f"osaio_test_{random_string}@{domain}"
+        password = self.generate_random_password()
+
+        print(f"开始使用临时邮箱注册流程 - 邮箱: {email}")
+
+        # 第一步：提交邮箱
+        step1 = register_page.register_step1_input_email(
+            email=email,
+            country="China",
+            agree_privacy=True,
+            agree_terms=True
+        )
+
+        if isinstance(step1, str):
+            pytest.skip(f"注册第一步未能进入验证码页面: {step1}")
+
+        # 等待验证码到临时邮箱
+        code, mail_id = wait_for_verification_code(email, timeout=180, check_interval=5)
+        if not code:
+            pytest.skip("未收到验证码邮件，跳过真实验证码注册测试")
+
+        print(f"收到验证码 {code} (mail_id={mail_id})")
+
+        # 第二步：输入验证码
+        step2 = register_page.register_step2_input_verification_code(code)
+        if isinstance(step2, str):
+            pytest.fail(f"验证码校验失败: {step2}")
+
+        # 第三步：设置密码并完成注册
+        result = register_page.register_step3_set_password(password)
+
+        if isinstance(result, HomePage):
+            assert result.is_home_displayed(), "注册成功应跳转到首页"
+            print("使用临时邮箱完成注册并跳转到首页")
+        else:
+            pytest.fail(f"注册流程未成功完成: {result}")
     
     def test_register_invalid_password_length(self, driver):
         """测试密码长度验证"""

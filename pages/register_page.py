@@ -1,6 +1,8 @@
 """注册页面 - 分步注册流程"""
 from appium.webdriver.common.appiumby import AppiumBy
 from pages.base_page import BasePage
+import time
+import os
 
 
 class RegisterPage(BasePage):
@@ -11,6 +13,8 @@ class RegisterPage(BasePage):
     TERMS_CHECKBOX = (AppiumBy.XPATH, "//*[contains(@text, 'Terms') or contains(@text, '条款')]")
     REGISTER_BTN_STEP1 = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Sign Up\").instance(1)")
     BACK_TO_LOGIN_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Sign In\")")
+    # 兼容老测试中使用的 REGISTER_BTN 名称
+    REGISTER_BTN = REGISTER_BTN_STEP1
     
     # 第二步：验证码页面元素
     VERIFICATION_CODE_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\")")
@@ -42,32 +46,45 @@ class RegisterPage(BasePage):
         :param country_name: 国家名称，如 "China", "United States"
         :return: 选择的国家名称
         """
-        # 点击国家选择器
-        self.click(*self.COUNTRY_SELECTOR)
-        
-        # 等待国家选择页面加载
-        self.wait.until(lambda d: self.is_displayed(*self.COUNTRY_PAGE_TITLE))
-        print("已进入国家选择页面")
+        # 尝试点击国家选择器，如果找不到则降级处理
+        try:
+            self.click(*self.COUNTRY_SELECTOR)
+            # 等待国家选择页面加载
+            self.wait.until(lambda d: self.is_displayed(*self.COUNTRY_PAGE_TITLE))
+            print("已进入国家选择页面")
+        except Exception:
+            print("未找到国家选择器，尝试在当前页面查找国家列表或搜索框")
         
         # 如果需要搜索国家
         try:
-            # 输入搜索关键词
+            # 输入搜索关键词（如果存在搜索框）
             self.input_text(*self.COUNTRY_SEARCH_INPUT, country_name)
             print(f"搜索国家: {country_name}")
         except Exception:
-            print("搜索框未找到，直接在国家列表中查找")
+            print("搜索框未找到，直接在国家列表中查找或使用页面上的国家文本")
         
         # 选择国家
+        # 尝试通过文本选择国家
         try:
-            # 尝试通过文本选择国家
             country_selector = (AppiumBy.ANDROID_UIAUTOMATOR, f"new UiSelector().text(\"{country_name}\")")
             self.click(*country_selector)
             print(f"选择国家: {country_name}")
+            return country_name
         except Exception:
-            # 如果找不到，选择第一个国家
+            # 如果找不到，尝试在列表中选择或直接匹配页面文本
             try:
                 countries = self.driver.find_elements(*self.COUNTRY_LIST)
                 if countries:
+                    # 尝试找到与 country_name 匹配的条目
+                    for c in countries:
+                        try:
+                            if country_name.lower() in c.text.lower():
+                                c.click()
+                                print(f"通过列表选择国家: {c.text}")
+                                return c.text
+                        except Exception:
+                            continue
+                    # 否则选择第一个国家作为降级
                     countries[0].click()
                     selected_country = countries[0].text
                     print(f"选择第一个国家: {selected_country}")
@@ -75,7 +92,10 @@ class RegisterPage(BasePage):
             except Exception as e:
                 print(f"选择国家失败: {e}")
                 # 返回上一页
-                self.back()
+                try:
+                    self.back()
+                except Exception:
+                    pass
                 return None
         
         # 返回注册页面
@@ -118,9 +138,33 @@ class RegisterPage(BasePage):
             except Exception:
                 print("条款复选框未找到或已默认选中")
         
-        # 点击注册按钮进入下一步
-        self.click(*self.REGISTER_BTN_STEP1)
-        print("点击注册按钮，进入验证码页面")
+        # 点击注册按钮进入下一步（失败时保存诊断信息）
+        try:
+            self.click(*self.REGISTER_BTN_STEP1)
+            print("点击注册按钮，进入验证码页面")
+        except Exception as e_click:
+            print(f"点击注册按钮失败: {e_click}")
+            try:
+                ts = time.strftime('%Y%m%d_%H%M%S')
+                report_dir = os.path.join(os.getcwd(), 'report')
+                os.makedirs(report_dir, exist_ok=True)
+                page_src_path = os.path.join(report_dir, f'register_step1_click_pagesource_{ts}.xml')
+                screenshot_path = os.path.join(report_dir, f'register_step1_click_screenshot_{ts}.png')
+                try:
+                    with open(page_src_path, 'w', encoding='utf-8') as f:
+                        f.write(self.driver.page_source)
+                    print(f"已保存页面源: {page_src_path}")
+                except Exception as ex_src:
+                    print(f"保存页面源失败: {ex_src}")
+                try:
+                    self.driver.get_screenshot_as_file(screenshot_path)
+                    print(f"已保存截图: {screenshot_path}")
+                except Exception as ex_sh:
+                    print(f"保存截图失败: {ex_sh}")
+            except Exception as ex_cap:
+                print(f"诊断信息保存失败: {ex_cap}")
+
+            return "点击注册按钮失败"
         
         # 等待验证码页面加载
         try:
@@ -129,13 +173,36 @@ class RegisterPage(BasePage):
             return self  # 返回当前页面对象，现在在验证码页面
         except Exception as e:
             print(f"未进入验证码页面: {e}")
-            
+
+            # 捕获页面源与截图以便诊断
+            try:
+                ts = time.strftime('%Y%m%d_%H%M%S')
+                report_dir = os.path.join(os.getcwd(), 'report')
+                os.makedirs(report_dir, exist_ok=True)
+                page_src_path = os.path.join(report_dir, f'register_step1_pagesource_{ts}.xml')
+                screenshot_path = os.path.join(report_dir, f'register_step1_screenshot_{ts}.png')
+                try:
+                    src = self.driver.page_source
+                    with open(page_src_path, 'w', encoding='utf-8') as f:
+                        f.write(src)
+                    print(f"已保存页面源: {page_src_path}")
+                except Exception as ex_src:
+                    print(f"保存页面源失败: {ex_src}")
+
+                try:
+                    self.driver.get_screenshot_as_file(screenshot_path)
+                    print(f"已保存截图: {screenshot_path}")
+                except Exception as ex_sh:
+                    print(f"保存截图失败: {ex_sh}")
+            except Exception as ex_capture:
+                print(f"诊断信息保存失败: {ex_capture}")
+
             # 检查是否有错误消息
             if self.is_error_displayed():
                 error_msg = self.get_error_message()
                 print(f"注册第一步失败: {error_msg}")
                 return error_msg
-            
+
             return "未知错误，未进入验证码页面"
     
     def register_step2_input_verification_code(self, verification_code):

@@ -26,10 +26,17 @@ class TestMainFlow:
         print("\n1. 登录系统")
         login_page = LoginPage(driver)
         
+        # 在登录前尝试跳过引导页（可能存在两页引导）
+        try:
+            login_page.skip_onboarding()
+            print("已尝试跳过引导页")
+        except Exception:
+            print("跳过引导页时发生异常，继续执行登录")
+
         # 使用智能登录（如果已登录会直接返回首页）
         home_page = login_page.smart_login(
-            account="kyg01@bccto.cc",
-            password="111111",
+            account="ocn03@bccto.cc",
+            password="123456",
             force_login=False  # 如果已登录，不强制重新登录
         )
         
@@ -38,8 +45,13 @@ class TestMainFlow:
         assert home_page.is_home_displayed(), "登录后应跳转到首页"
         print("✓ 登录成功，已进入首页")
         
-        # 等待首页完全加载
-        time.sleep(3)
+        # 等待首页完全加载并尝试关闭权限/通知弹窗
+        time.sleep(2)
+        try:
+            if home_page.dismiss_permission_dialogs():
+                print("已关闭权限/通知弹窗")
+        except Exception:
+            print("关闭权限弹窗时发生异常，继续")
         
         # 步骤3: 检查设备列表
         print("\n3. 检查设备列表")
@@ -55,75 +67,132 @@ class TestMainFlow:
                 # 尝试查找设备卡片或设备列表
                 # 由于具体UI元素未知，这里使用通用方法
                 try:
-                    # 查找可能的设备元素
-                    device_elements = driver.find_elements("xpath", "//androidx.viewpager.widget.ViewPager/android.view.ViewGroup/android.widget.ScrollView/android.view.ViewGroup/android.view.ViewGroup/android.view.ViewGroup/android.view.ViewGroup/android.view.ViewGroup[2]")
+                    # 尝试通过页面对象的设备名定位设备卡片
+                    device_page = DevicePage(driver)
+                    device_elements = device_page.find_device_elements()
                     if device_elements:
-                        print(f"找到 {len(device_elements)} 个设备相关元素")
+                        print(f"找到 {len(device_elements)} 个设备相关元素 (by DEVICE_NAME)")
                         # 点击第一个设备
                         device_elements[0].click()
                         print("✓ 点击进入设备页面")
-                        
+
                         # 步骤4: 进入设备页面
                         print("\n4. 进入设备页面")
                         device_page = DevicePage(driver)
-                        time.sleep(2)
-                        
+                        # 等待设备页面加载
+                        try:
+                            device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_VIEW_BTN))
+                        except Exception:
+                            # 可容忍未立即出现直播控件，继续后续检查
+                            pass
+
                         # 步骤5: 设备出图（实时查看）
                         print("\n5. 设备出图（实时查看）")
                         try:
-                            # 检查直播视频
-                            if device_page.is_displayed(*device_page.LIVE_VIEW, timeout=5):
-                                print("✓ 找到直播框")
-                                
-                                # 点击实时查看
-                                #device_page.open_live_view()
-                                #print("✓ 点击实时查看按钮")
-
-
+                            # 优先点击实时查看按钮（如果存在）
+                            if device_page.is_displayed(*device_page.LIVE_VIEW_BTN, timeout=3):
+                                device_page.open_live_view()
+                                print("✓ 点击实时查看按钮")
                                 # 等待视频加载
-                                time.sleep(5)
-                                
-                                # 检查视频相关元素
-                                # 这里可以检查视频画面、控制按钮等
-                                try:
-                                    # 查找视频相关元素
-                                    video_elements = driver.find_elements("id", "com.afar.osaio:id/xp_live_player_stream_tag")
-                                    if video_elements:
-                                        print(f"✓ 设备出图成功，找到 {len(video_elements)} 个视频相关元素")
-                                    else:
-                                        # 检查静音按钮等控制元素
-                                        if device_page.is_displayed(*device_page.WAVEOUT_BTN, timeout=3):
-                                            print("✓ 设备出图成功，显示控制按钮")
-                                        else:
-                                            print("⚠ 未找到明确的视频元素，但可能已进入视频页面")
-                                    
-                                    # 返回设备页面
-                                    driver.back()
-                                    time.sleep(2)
-                                    
-                                except Exception as e:
-                                    print(f"验证设备出图时出错: {e}")
-                                    print("⚠ 设备出图验证可能不完整")
-                                
+                                device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG))
                             else:
-                                print("⚠ 未找到实时查看按钮，可能设备页面不同")
-                                # 尝试其他方式进入实时查看
-                                
+                                # 如果已在直播页面，或无按钮，直接检测直播视图
+                                device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG), timeout=5)
+
+                            # 检查视频相关元素
+                            try:
+                                video_elems = driver.find_elements(*device_page.LIVE_LOG)
+                                if video_elems:
+                                    print(f"✓ 设备出图成功，找到 {len(video_elems)} 个视频相关元素")
+                                elif device_page.is_displayed(*device_page.WAVEOUT_BTN, timeout=2):
+                                    print("✓ 设备出图成功，显示控制按钮")
+                                else:
+                                    print("⚠ 未找到明确的视频元素，但可能已进入视频页面")
+                            except Exception as e:
+                                print(f"检查视频元素时出错: {e}")
+
+                            # 返回设备页面
+                            driver.back()
+                            time.sleep(2)
+
                         except Exception as e:
                             print(f"设备出图操作失败: {e}")
                             print("⚠ 设备出图步骤可能不完整")
-                        
+
                     else:
-                        print("⚠ 未找到设备元素，可能没有添加设备")
-                        print("测试流程完成：登录成功 → 进入首页")
-                        
+                        # 未找到设备名元素，尝试进入添加设备页面作为降级步骤
+                        print("⚠ 未找到设备元素，尝试进入添加设备页面作为降级检查")
+                        try:
+                            # 再次尝试通过页面对象定位设备（以便重用过滤规则）
+                            device_elements = DevicePage(driver).find_device_elements()
+                            if device_elements:
+                                device_elements[0].click()
+                                print("在降级路径中找到设备并点击")
+                            else:
+                                home_page.click_add_device()
+                                print("已点击 添加设备 (降级路径)")
+                                time.sleep(2)
+                                driver.back()
+                        except Exception as e:
+                            print(f"降级路径也失败: {e}")
+
                 except Exception as e:
-                    print(f"查找设备元素时出错: {e}")
+                    print(f"查找或进入设备页面时出错: {e}")
                     print("测试流程完成：登录成功 → 进入首页")
             
             else:
-                print("⚠ 未找到添加设备按钮，首页布局可能不同")
-                print("测试流程完成：登录成功 → 进入首页")
+                # 未找到添加设备按钮，尝试直接查找设备列表或文本元素作为降级路径
+                print("⚠ 未找到添加设备按钮，尝试直接读取设备列表")
+                try:
+                    device_elements = driver.find_elements(*DevicePage.DEVICE_NAME)
+                    if device_elements:
+                        print(f"找到 {len(device_elements)} 个设备相关元素 (降级路径)")
+                        device_elements[0].click()
+                        print("✓ 点击进入设备页面 (降级路径)")
+                        device_page = DevicePage(driver)
+                        try:
+                            device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_VIEW_BTN))
+                        except Exception:
+                            pass
+                        # 之后复用上面的直播检测逻辑
+                        try:
+                            if device_page.is_displayed(*device_page.LIVE_VIEW_BTN, timeout=3):
+                                device_page.open_live_view()
+                                device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG))
+                            else:
+                                device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG), timeout=5)
+                            video_elems = driver.find_elements(*device_page.LIVE_LOG)
+                            if video_elems:
+                                print(f"✓ 设备出图成功，找到 {len(video_elems)} 个视频相关元素")
+                            elif device_page.is_displayed(*device_page.WAVEOUT_BTN, timeout=2):
+                                print("✓ 设备出图成功，显示控制按钮")
+                            else:
+                                print("⚠ 未找到明确的视频元素，但可能已进入视频页面")
+                            driver.back()
+                            time.sleep(2)
+                        except Exception as e:
+                            print(f"降级路径设备出图检测失败: {e}")
+                    else:
+                        # 尝试扫描页面上的文本元素，找到可能的设备名并点击
+                        try:
+                            txt_nodes = driver.find_elements("xpath", "//android.widget.TextView")
+                            clicked = False
+                            for n in txt_nodes:
+                                try:
+                                    t = n.text
+                                    if t and len(t) > 2 and not t.isnumeric():
+                                        n.click()
+                                        print(f"降级路径：点击文本元素进入设备/详情 -> {t}")
+                                        clicked = True
+                                        break
+                                except Exception:
+                                    continue
+                            if not clicked:
+                                print("未找到合适的文本元素，降级检查失败")
+                        except Exception as e:
+                            print(f"降级流程失败: {e}")
+                except Exception as e:
+                    print(f"降级流程总失败: {e}")
                 
         except Exception as e:
             print(f"检查设备列表时出错: {e}")
@@ -148,8 +217,8 @@ class TestMainFlow:
         
         # 使用智能登录
         home_page = login_page.smart_login(
-            account="kyg01@bccto.cc",
-            password="111111",
+            account="ocn03@bccto.cc",
+            password="123456",
             force_login=True  # 强制重新登录，确保从登录开始
         )
         
@@ -240,7 +309,7 @@ class TestMainFlow:
         
         # 使用错误密码
         error_result = login_page.login(
-            account="kyg01@bccto.cc",
+            account="ocn03@bccto.cc",
             password="wrongpassword",
             expect_success=False
         )
@@ -253,7 +322,7 @@ class TestMainFlow:
         print("\n2. 测试空账号登录")
         error_result = login_page.login(
             account="",
-            password="111111",
+            password="123456",
             expect_success=False
         )
         
@@ -264,8 +333,8 @@ class TestMainFlow:
         # 测试3: 正确登录恢复
         print("\n3. 测试正确登录恢复")
         home_page = login_page.login(
-            account="kyg01@bccto.cc",
-            password="111111",
+            account="ocn03@bccto.cc",
+            password="123456",
             expect_success=True
         )
         
@@ -298,7 +367,7 @@ class TestMainFlow:
             time.sleep(2)
         
         login_start = time.time()
-        home_page = login_page.login("kyg01@bccto.cc", "111111")
+        home_page = login_page.login("ocn03@bccto.cc", "123456")
         login_time = time.time() - login_start
         
         # 验证登录

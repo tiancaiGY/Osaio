@@ -18,6 +18,15 @@ class BasePage:
     def click(self, by, value):
         self.find_visible(by, value).click()
 
+    def tap_text(self, text, exact=False):
+        """点击文本元素，按包含文本查找，返回是否成功。"""
+        selector = f'new UiSelector().text("{text}")' if exact else f'new UiSelector().textContains("{text}")'
+        try:
+            self.click(AppiumBy.ANDROID_UIAUTOMATOR, selector)
+            return True
+        except Exception:
+            return False
+
     def input_text(self, by, value, text):
         el = self.find(by, value)
         el.clear()

@@ -211,11 +211,74 @@ class LoginPage(BasePage):
         
         # 检查是否在登录页面
         if not self.is_displayed(*self.LOGIN_BTN, timeout=5):
-            # 如果不在登录页面，可能需要先退出或导航到登录页面
-            print("不在登录页面，可能需要先退出登录")
-            # 这里可以添加退出登录的逻辑
-            # 暂时先返回错误
-            raise Exception("当前不在登录页面，无法执行登录操作")
+            # 如果不在登录页面，尝试采取恢复措施：后退、或在首页执行退出登录
+            print("不在登录页面，尝试恢复到登录页面（back 或 logout）")
+            import time
+            recovered = False
+            # 尝试后退若干次
+            for _ in range(3):
+                try:
+                    self.driver.back()
+                    time.sleep(1)
+                except Exception:
+                    pass
+                if self.is_displayed(*self.LOGIN_BTN, timeout=1):
+                    recovered = True
+                    break
+
+            if not recovered:
+                # 如果处于首页，可以尝试通过账户页退出
+                try:
+                    from pages.home_page import HomePage
+                    home = HomePage(self.driver)
+                    if home.is_home_displayed():
+                        account = home.go_account()
+                        if hasattr(account, 'logout') and account.logout():
+                            # 等待回到登录页
+                            if self.is_displayed(*self.LOGIN_BTN, timeout=3):
+                                recovered = True
+                except Exception:
+                    pass
+
+            if not recovered:
+                # 尝试直接在当前页面寻找输入框并执行登录（作为最后的降级方案）
+                try:
+                    if not account or not password:
+                        raise Exception("未提供账号或密码，无法进行降级登录")
+
+                    # 先尝试重启应用并跳过引导，以恢复到登录页
+                    try:
+                        self.driver.launch_app()
+                        import time as _t
+                        _t.sleep(2)
+                        try:
+                            self.skip_onboarding()
+                        except Exception:
+                            pass
+                    except Exception:
+                        # 如果无法重启，也继续后续降级尝试
+                        pass
+
+                    # 使用通用输入查找并输入
+                    self.smart_input_account(account)
+                    self.smart_input_password(password)
+
+                    # 尝试点击登录按钮，若不可用则点击第一个 Button 作为降级
+                    try:
+                        self.click(*self.LOGIN_BTN)
+                    except Exception:
+                        try:
+                            self.click(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().className("android.widget.Button").instance(0)')
+                        except Exception:
+                            pass
+
+                    # 之后继续等待跳转至首页
+                    from pages.home_page import HomePage
+                    home_page = HomePage(self.driver)
+                    home_page.wait.until(lambda d: home_page.is_home_displayed())
+                    return home_page
+                except Exception:
+                    raise Exception("当前不在登录页面，无法执行登录操作")
         
         # 使用智能输入方法
         self.smart_input_account(account)
@@ -227,3 +290,41 @@ class LoginPage(BasePage):
         home_page = HomePage(self.driver)
         home_page.wait.until(lambda d: home_page.is_home_displayed())
         return home_page
+
+    def skip_onboarding(self, max_tries=5):
+        """尝试跳过首次启动的引导页（同意 -> 开始等）。"""
+        for _ in range(max_tries):
+            progressed = False
+            for txt in ["同意", "Agree"]:
+                if self.tap_text(txt):
+                    progressed = True
+                    try:
+                        # small sleep to allow UI to update
+                        from time import sleep
+                        sleep(1.5)
+                    except Exception:
+                        pass
+                    break
+
+            for start_txt in ["开始", "Start", "Get Started", "让我们开始"]:
+                if self.tap_text(start_txt) or self.tap_text(start_txt, exact=False):
+                    progressed = True
+                    try:
+                        from time import sleep
+                        sleep(1.5)
+                    except Exception:
+                        pass
+                    break
+
+            # 如果检测到登录输入框或登录按钮，说明已跳过引导
+            try:
+                if self.is_displayed(*self.LOGIN_BTN, timeout=1) or self.is_displayed(*self.ACCOUNT_INPUT, timeout=1):
+                    return True
+            except Exception:
+                pass
+
+            if not progressed:
+                # 没有任何操作可以做，退出
+                break
+
+        return False
