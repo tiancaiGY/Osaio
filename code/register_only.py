@@ -1,4 +1,4 @@
-import time, yaml, uiautomator2 as u2, random
+import sys, time, yaml, uiautomator2 as u2, random
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -6,11 +6,15 @@ BASE_DIR = Path(__file__).parent
 with open(BASE_DIR / "config" / "config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
+# 复用项目根目录的账号加载器（集中管理账号密码，支持环境变量覆盖）
+sys.path.insert(0, str(BASE_DIR.parent))
+from utils.accounts import get_register_default_password
+
 serial = config["device"]["serial"]
 package = config["app"]["package_name"]
 UID = random.randint(10000, 99999)
 EMAIL = f"autotest{UID}@mailto.plus"
-PASSWORD = "123456"
+PASSWORD = get_register_default_password()
 
 d = u2.connect(serial)
 d.implicitly_wait(10)

@@ -7,9 +7,11 @@ class HomePage(BasePage):
     # 元素定位 - 需要用 Appium Inspector 确认实际 ID
     ADD_DEVICE_BTN = (AppiumBy.ACCESSIBILITY_ID, "new UiSelector().className(\"android.view.ViewGroup\").instance(39)")
     DEVICE_LIST = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"All Types\")")
-    TAB_HOME = (AppiumBy.ACCESSIBILITY_ID, "Home, tab, 1 of 3")
-    TAB_MESSAGE = (AppiumBy.ACCESSIBILITY_ID, "Event, tab, 2 of 3")
-    TAB_MINE = (AppiumBy.ID, "com.osaio.app:id/tab_mine")
+    # 底部 tab 用 content-desc 定位。应用为中文界面（首页/事件/帐户），但 "tab, N of 3"
+    # 后缀在各语言下保持不变，故用 descriptionContains 做语言无关匹配。
+    TAB_HOME = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 1 of 3")')
+    TAB_MESSAGE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 2 of 3")')
+    TAB_MINE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 3 of 3")')
 
 
     def is_home_displayed(self):

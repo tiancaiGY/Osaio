@@ -18,7 +18,7 @@ class RegisterPage(BasePage):
     
     # 第二步：验证码页面元素
     VERIFICATION_CODE_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\")")
-    VERIFICATION_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Verification\").textContains(\"验证\")")
+    VERIFICATION_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Verification\").textContains(\"Resend Code\")")
     RESEND_CODE_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Resend\").textContains(\"重发\")")
     VERIFY_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Verify\").textContains(\"验证\")")
     

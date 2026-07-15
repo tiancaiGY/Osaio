@@ -4,15 +4,14 @@ from pages.login_page import LoginPage
 
 
 class TestLoginTwoAccounts:
-    def test_switch_accounts(self, driver):
+    def test_switch_accounts(self, driver, account):
         """登录账号 A，退出，再登录账号 B。"""
         login_page = LoginPage(driver)
 
-        email_a = "testa31@mailto.plus"
-        email_b = "testa32@mailto.plus"
-        password = "123456"
+        acc_a = account("switch_a")
+        acc_b = account("switch_b")
 
-        home_page_a = login_page.login(email_a, password)
+        home_page_a = login_page.login(acc_a.account, acc_a.password)
         assert home_page_a.is_home_displayed(), "账号 A 登录后应进入首页"
 
         account_page = home_page_a.go_account()
@@ -20,5 +19,5 @@ class TestLoginTwoAccounts:
 
         assert login_page.is_displayed(*login_page.LOGIN_BTN), "退出后应返回登录页"
 
-        home_page_b = login_page.login(email_b, password)
+        home_page_b = login_page.login(acc_b.account, acc_b.password)
         assert home_page_b.is_home_displayed(), "账号 B 登录后应进入首页"

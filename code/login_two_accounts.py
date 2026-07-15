@@ -1,8 +1,12 @@
-import time, yaml, uiautomator2 as u2
+import sys, time, yaml, uiautomator2 as u2
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config" / "config.yaml"
+
+# 复用项目根目录的账号加载器（集中管理账号密码，支持环境变量覆盖）
+sys.path.insert(0, str(BASE_DIR.parent))
+from utils.accounts import get_account
 
 def load_config():
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -260,8 +264,8 @@ def main():
     screenshots_dir.mkdir(parents=True, exist_ok=True)
 
     accounts = [
-        ("testa31@mailto.plus", "123456"),
-        ("testa32@mailto.plus", "123456"),
+        tuple(get_account("switch_a")),
+        tuple(get_account("switch_b")),
     ]
 
     print(f"连接设备: {serial}")

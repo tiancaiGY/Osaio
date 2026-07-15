@@ -1,0 +1,32 @@
+# 测试账号集中配置
+#
+# 所有测试/脚本用到的账号密码都在这里维护，代码里不再硬编码。
+# 可用环境变量覆盖任意字段（便于 CI / 本地私密账号，避免把真实账号提交进仓库）：
+#   OSAIO_<KEY>_ACCOUNT / OSAIO_<KEY>_PASSWORD    覆盖某个具名账号
+#   OSAIO_WRONG_PASSWORD                          覆盖错误密码用例的密码
+# 例如：OSAIO_PRIMARY_ACCOUNT=foo@bar.cc OSAIO_PRIMARY_PASSWORD=secret pytest ...
+#
+# 加载与覆盖逻辑见 utils/accounts.py。
+
+accounts:
+  # 主账号：test_main 主流程 / test_login 使用
+  primary:
+    account: "kyg01@bccto.cc"
+    password: "111111"
+  # 次账号：test_main 设备操作 / 错误处理 / 性能用例使用
+  secondary:
+    account: "ocn03@bccto.cc"
+    password: "123456"
+  # 账号切换用例（test_login_two_accounts / code/login_two_accounts.py）
+  switch_a:
+    account: "testa31@mailto.plus"
+    password: "123456"
+  switch_b:
+    account: "testa32@mailto.plus"
+    password: "123456"
+
+# 错误密码用例使用的“错误密码”值
+wrong_password: "wrongpassword"
+
+# 注册脚本 (code/register_only.py / full_auto.py) 默认密码
+register_default_password: "123456"
