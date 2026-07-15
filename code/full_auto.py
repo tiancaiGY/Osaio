@@ -1,5 +1,13 @@
+import os, sys
 import uiautomator2 as u2
 import requests, re, time
+from pathlib import Path
+
+# 复用项目根目录的账号加载器（集中管理账号密码，支持环境变量覆盖）
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.accounts import get_register_default_password
+
+REGISTER_PASSWORD = get_register_default_password()
 
 d = u2.connect_usb('R5CT34HNGTN')
 
@@ -43,7 +51,7 @@ for t in ["让我们开始", "开始", "Start", "Get Started"]:
 d.click(781, 483)
 time.sleep(2)
 
-email = "testb14@mailto.plus"
+email = os.environ.get("OSAIO_REGISTER_EMAIL", "testb14@mailto.plus")
 e = d(className="android.widget.EditText", instance=0)
 e.clear_text(); time.sleep(0.3)
 e.set_text(email); time.sleep(2)
@@ -72,9 +80,9 @@ print("Code entered")
 
 time.sleep(3)
 pw1 = d(className="android.widget.EditText", instance=1)
-if pw1.exists(timeout=3): pw1.set_text("123456"); time.sleep(1)
+if pw1.exists(timeout=3): pw1.set_text(REGISTER_PASSWORD); time.sleep(1)
 pw2 = d(className="android.widget.EditText", instance=2)
-if pw2.exists(timeout=3): pw2.set_text("123456"); time.sleep(1)
+if pw2.exists(timeout=3): pw2.set_text(REGISTER_PASSWORD); time.sleep(1)
 print("Password set")
 
 for t in ['提交', 'Submit', 'Confirm']:
@@ -107,7 +115,7 @@ print("Email filled")
 
 p = d(className="android.widget.EditText", instance=1)
 p.clear_text(); time.sleep(0.3)
-p.set_text("123456"); time.sleep(2)
+p.set_text(REGISTER_PASSWORD); time.sleep(2)
 print("Password filled")
 
 d.click(589, 1394); time.sleep(3)

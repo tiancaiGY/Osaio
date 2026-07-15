@@ -146,7 +146,8 @@ class TestRegister:
         
         # 生成测试数据
         email = self.generate_random_email()
-        verification_code = "123456"  # 模拟验证码，实际测试中需要真实验证码
+        # 模拟验证码，实际测试中需要真实验证码（可用 OSAIO_MOCK_VERIFICATION_CODE 覆盖）
+        verification_code = os.environ.get("OSAIO_MOCK_VERIFICATION_CODE", "123456")
         password = self.generate_random_password()
         
         print(f"测试完整注册流程 - 邮箱: {email}, 密码: {password}")
