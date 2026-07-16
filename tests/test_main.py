@@ -98,7 +98,12 @@ class TestMainFlow:
                                 device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG))
                             else:
                                 # 如果已在直播页面，或无按钮，直接检测直播视图
-                                device_page.wait.until(lambda d: device_page.is_displayed(*device_page.LIVE_VIEW) or device_page.is_displayed(*device_page.LIVE_LOG), timeout=5)
+                                # 注意：WebDriverWait.until() 不接受 timeout 关键字参数
+                                # （超时在 WebDriverWait 构造时设定）；误传会抛 TypeError 被外层吞掉，
+                                # 导致“设备出图”实际未验证却静默跳过。用 is_displayed(timeout=) 显式等待。
+                                assert device_page.is_displayed(*device_page.LIVE_VIEW, timeout=5) \
+                                    or device_page.is_displayed(*device_page.LIVE_LOG, timeout=5), \
+                                    "未检测到直播视图/日志（设备出图未成功）"
 
                             # 检查视频相关元素
                             try:

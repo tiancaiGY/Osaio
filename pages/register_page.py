@@ -6,100 +6,172 @@ import os
 
 
 class RegisterPage(BasePage):
-    # 第一步：注册页面元素（输入邮箱和国家）
-    COUNTRY_SELECTOR = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Country\").textContains(\"国家\")")
+    # 重要：同一个 UiSelector 里链式写多个 textContains 是“相与”，一个元素不可能同时包含
+    # 两种语言文案，会导致定位器永不命中（历史 bug）。凡是中/英双语匹配一律用
+    # textMatches("a|b")（相或）；“包含”语义写成 .*(a|b).*。
+    #
+    # 第一步：注册（Sign Up）页面元素（RN 页面，实测结构见下）
+    # 页面结构：顶部 Sign In/Sign Up tab → 国家行(含"China") → Email 输入框 →
+    #           "I confirm ... Terms ... Privacy" 同意行(左侧有勾选框，行内含可点的政策链接) →
+    #           底部 Sign Up 按钮。
+    COUNTRY_SELECTOR = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("China|中国")')
     EMAIL_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(0)")
-    PRIVACY_CHECKBOX = (AppiumBy.XPATH, "//*[contains(@text, 'Privacy') or contains(@text, '隐私')]")
-    TERMS_CHECKBOX = (AppiumBy.XPATH, "//*[contains(@text, 'Terms') or contains(@text, '条款')]")
-    REGISTER_BTN_STEP1 = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Sign Up\").instance(1)")
-    BACK_TO_LOGIN_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Sign In\")")
+    # 同意条款一整行（可点的 ViewGroup 包裹这段文本）。勾选框在该行最左侧留白处，
+    # 行内的 Terms/Privacy 是可点链接——所以切勿点文字，要点最左侧勾选框。见 _toggle_agreement。
+    AGREEMENT_ROW = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(I confirm that I am|我确认|同意).*")')
+    # 底部“Sign Up”按钮为 instance(1)（顶部 tab 是 instance(0)）。
+    REGISTER_BTN_STEP1 = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("注册|Sign Up").instance(1)')
+    BACK_TO_LOGIN_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("登录|Sign In")')
     # 兼容老测试中使用的 REGISTER_BTN 名称
     REGISTER_BTN = REGISTER_BTN_STEP1
-    
-    # 第二步：验证码页面元素
+
+    # 第二步：验证码页面元素。实测页面标题为“Verify Your Account”、
+    # 副标题“Enter the verification code to continue”，含重发倒计时“NNs”。
     VERIFICATION_CODE_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\")")
-    VERIFICATION_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Verification\").textContains(\"Resend Code\")")
-    RESEND_CODE_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Resend\").textContains(\"重发\")")
-    VERIFY_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Verify\").textContains(\"验证\")")
-    
+    VERIFICATION_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Verify Your Account|Enter the verification code|Verification|验证码|验证你的|输入验证码).*")')
+    RESEND_CODE_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Resend|重发|重新发送).*")')
+    VERIFY_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Verify|Continue|Next|验证|继续|下一步).*")')
+
     # 第三步：设置密码页面元素
     PASSWORD_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(0)")
     CONFIRM_PASSWORD_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(1)")
-    PASSWORD_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Password\").textContains(\"密码\")")
-    CONFIRM_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"Confirm\").textContains(\"确认\")")
-    
-    # 国家选择页面元素
+    PASSWORD_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Password|密码).*")')
+    CONFIRM_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("Confirm|确认")')
+
+    # 国家选择页面元素（实测标题为“Country List”，含“Search”搜索框，条目如“China”“Afghanistan (+93)”）
     COUNTRY_SEARCH_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\")")
     COUNTRY_LIST = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.TextView\")")
     COUNTRY_ITEM = (AppiumBy.XPATH, "//android.widget.TextView[contains(@text, 'China') or contains(@text, '美国') or contains(@text, 'United')]")
-    COUNTRY_PAGE_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"Country\").textContains(\"国家\")")
-    
-    # 错误提示
-    ERROR_MESSAGE = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"error\").textContains(\"Error\")")
-    EMAIL_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"email\").textContains(\"Email\")")
-    PASSWORD_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"password\").textContains(\"Password\")")
-    CODE_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().textContains(\"code\").textContains(\"Code\").textContains(\"验证码\")")
+    COUNTRY_PAGE_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Country List|Country|国家).*")')
+
+    # 错误提示（大小写无关，中英双语；用 textMatches 相或）
+    ERROR_MESSAGE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("(?i).*(error|错误|失败|invalid|incorrect).*")')
+    EMAIL_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("(?i).*(email|邮箱).*(invalid|incorrect|错误|已注册|registered).*")')
+    PASSWORD_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("(?i).*(password|密码).*(invalid|incorrect|错误|不一致|mismatch|length|长度).*")')
+    CODE_ERROR = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("(?i).*(code|验证码).*(invalid|incorrect|error|错误|expired).*")')
     
     def select_country(self, country_name="China"):
+        """选择国家。
+
+        实测：Sign Up 页的国家行显示当前国家（默认“China”），点击进入“Country List”页
+        （含 Search 搜索框，条目如“China”“Afghanistan (+93)”）。若默认已是目标国家，
+        点开后可直接在列表里点选；也可先用搜索框过滤。
+        :return: 选择的国家名称（失败返回 None）
         """
-        选择国家
-        :param country_name: 国家名称，如 "China", "United States"
-        :return: 选择的国家名称
-        """
-        # 尝试点击国家选择器，如果找不到则降级处理
+        # 若当前页已显示目标国家且无需切换，直接返回（避免不必要的进出）
+        # 点击国家行进入国家列表页
         try:
             self.click(*self.COUNTRY_SELECTOR)
-            # 等待国家选择页面加载
-            self.wait.until(lambda d: self.is_displayed(*self.COUNTRY_PAGE_TITLE))
-            print("已进入国家选择页面")
+            self.wait.until(lambda d: self.is_displayed(*self.COUNTRY_PAGE_TITLE, timeout=2))
+            print("已进入国家选择页面（Country List）")
         except Exception:
-            print("未找到国家选择器，尝试在当前页面查找国家列表或搜索框")
-        
-        # 如果需要搜索国家
-        try:
-            # 输入搜索关键词（如果存在搜索框）
-            self.input_text(*self.COUNTRY_SEARCH_INPUT, country_name)
-            print(f"搜索国家: {country_name}")
-        except Exception:
-            print("搜索框未找到，直接在国家列表中查找或使用页面上的国家文本")
-        
-        # 选择国家
-        # 尝试通过文本选择国家
-        try:
-            country_selector = (AppiumBy.ANDROID_UIAUTOMATOR, f"new UiSelector().text(\"{country_name}\")")
-            self.click(*country_selector)
-            print(f"选择国家: {country_name}")
+            print("未能进入国家选择页（可能已在注册页且默认国家即为目标），继续")
             return country_name
+
+        # 优先用搜索框过滤
+        try:
+            if self.is_displayed(*self.COUNTRY_SEARCH_INPUT, timeout=3):
+                self.input_text(*self.COUNTRY_SEARCH_INPUT, country_name)
+                print(f"搜索国家: {country_name}")
+                import time
+                time.sleep(1)
         except Exception:
-            # 如果找不到，尝试在列表中选择或直接匹配页面文本
-            try:
-                countries = self.driver.find_elements(*self.COUNTRY_LIST)
-                if countries:
-                    # 尝试找到与 country_name 匹配的条目
-                    for c in countries:
-                        try:
-                            if country_name.lower() in c.text.lower():
-                                c.click()
-                                print(f"通过列表选择国家: {c.text}")
-                                return c.text
-                        except Exception:
-                            continue
-                    # 否则选择第一个国家作为降级
-                    countries[0].click()
-                    selected_country = countries[0].text
-                    print(f"选择第一个国家: {selected_country}")
-                    return selected_country
-            except Exception as e:
-                print(f"选择国家失败: {e}")
-                # 返回上一页
+            print("搜索框不可用，直接在列表中查找")
+
+        # 在列表中点选匹配项
+        try:
+            item = (AppiumBy.ANDROID_UIAUTOMATOR,
+                    f'new UiSelector().textContains("{country_name}")')
+            if self.is_displayed(*item, timeout=3):
+                self.click(*item)
+                print(f"选择国家: {country_name}")
+                return country_name
+        except Exception:
+            pass
+
+        # 降级：扫描列表取第一个包含关键词的条目
+        try:
+            countries = self.driver.find_elements(*self.COUNTRY_LIST)
+            for c in countries:
                 try:
-                    self.back()
+                    if country_name.lower() in (c.text or "").lower():
+                        c.click()
+                        print(f"通过列表选择国家: {c.text}")
+                        return c.text
                 except Exception:
-                    pass
-                return None
-        
-        # 返回注册页面
-        return country_name
+                    continue
+        except Exception as e:
+            print(f"选择国家失败: {e}")
+
+        # 仍未选中：返回上一页，交由调用方处理
+        try:
+            self.back()
+        except Exception:
+            pass
+        return None
+
+    def _toggle_agreement(self, agree=True):
+        """切换“I confirm ... Terms ... Privacy”同意勾选框。
+
+        关键：这一行里的 Terms/Privacy 是**行内可点链接**，点文字会跳到条款/隐私政策页；
+        勾选框在该行**最左侧留白**处。因此对同意行左侧留白坐标做 tap，避开链接。
+        :param agree: True=尝试勾选（点一次）。当前 App 无法读取勾选态，故只做一次点击尝试。
+        :return: 是否找到并点击了同意行
+        """
+        els = self.driver.find_elements(*self.AGREEMENT_ROW)
+        if not els:
+            print("未找到同意条款行")
+            return False
+        try:
+            # 取包裹该文本的可点父行 rect；勾选框在行最左侧，点 (left+40, 垂直中点)
+            r = els[0].rect
+            cx = int(r["x"] + 40)
+            cy = int(r["y"] + r["height"] / 2)
+            self.driver.tap([(cx, cy)])
+            print(f"已点击同意条款勾选框: ({cx},{cy})")
+            return True
+        except Exception as e:
+            print(f"点击同意条款勾选框失败: {e}")
+            return False
+
+    def register(self, email, password="", confirm_password="", agree_terms=True):
+        """一步式注册入口（服务于负向/校验用例）。
+
+        真机上注册是分步流程：Sign Up 页只输入**邮箱**并勾选同意，密码在后续页。
+        因此本方法只完成 Sign Up 页的操作（输入邮箱、按需勾选同意、点 Sign Up），
+        用于验证“空/非法邮箱、不同意条款”等 App 的即时校验行为。
+        password/confirm_password 保留为兼容旧用例签名，Sign Up 页不使用。
+
+        :return: 进入验证码页 -> RegisterPage(self)；否则返回错误消息字符串
+                 （App 静默校验、无错误文案时返回描述性字符串）。
+        """
+        print(f"=== register(): 邮箱={email!r} agree_terms={agree_terms} ===")
+        # 输入邮箱（空字符串则清空即可）
+        try:
+            el = self.find(*self.EMAIL_INPUT)
+            el.clear()
+            if email:
+                el.send_keys(email)
+        except Exception as e:
+            return f"无法输入邮箱: {e}"
+
+        if agree_terms:
+            self._toggle_agreement(agree=True)
+
+        # 点击底部 Sign Up
+        try:
+            self.click(*self.REGISTER_BTN_STEP1)
+            print("点击 Sign Up")
+        except Exception as e:
+            return f"点击 Sign Up 失败: {e}"
+
+        # 进入验证码页则算成功；否则读取错误提示或返回“无错误提示”描述
+        if self.is_displayed(*self.VERIFICATION_TITLE, timeout=6):
+            print("已进入验证码页面")
+            return self
+        if self.is_error_displayed():
+            return self.get_error_message()
+        return "未进入验证码页面且无明确错误提示（App 可能静默校验）"
     
     def register_step1_input_email(self, email, country="China", agree_privacy=True, agree_terms=True):
         """
@@ -121,22 +193,10 @@ class RegisterPage(BasePage):
         # 输入邮箱
         self.input_text(*self.EMAIL_INPUT, email)
         print(f"输入邮箱: {email}")
-        
-        # 同意隐私政策
-        if agree_privacy:
-            try:
-                self.click(*self.PRIVACY_CHECKBOX)
-                print("已同意隐私政策")
-            except Exception:
-                print("隐私政策复选框未找到或已默认选中")
-        
-        # 同意条款
-        if agree_terms:
-            try:
-                self.click(*self.TERMS_CHECKBOX)
-                print("已同意条款")
-            except Exception:
-                print("条款复选框未找到或已默认选中")
+
+        # 同意条款（隐私与条款为同一行的同意勾选框；agree_privacy/agree_terms 任一为真即勾选）
+        if agree_privacy or agree_terms:
+            self._toggle_agreement(agree=True)
         
         # 点击注册按钮进入下一步（失败时保存诊断信息）
         try:
