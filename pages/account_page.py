@@ -9,13 +9,14 @@ class AccountPage(BasePage):
     ACCOUNT_TAB = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 3 of 3")')
     # 帐户 tab 落地页的“资料头部”（含头像/邮箱），点击后进入“账户设置”页。无 id，用 viewgroup 索引兜底。
     ACCOUNT_SETTINGS = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().className("android.view.ViewGroup").instance(14)')
-    # 已进入“账户设置”页的标识（中文实际文案为“账户设置”）。
-    ACCOUNT_SETTINGS_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textContains("账户设置")')
+    # 已进入“账户设置”页的标识。App 语言可能为中/英，用 textMatches 做语言无关匹配
+    # （中文“账户设置” / 英文“Account Settings”）。
+    ACCOUNT_SETTINGS_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(账户设置|Account Settings).*")')
     PROFILE_AREA = ACCOUNT_SETTINGS_TITLE
-    # 退出登录按钮（设置页底部）。中文文案“退出登录”。
-    LOGOUT_BUTTON = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("退出登录")')
-    # 退出确认弹窗标题（“立即退出 OSAIO？”），用于判断弹窗已出现。
-    LOGOUT_CONFIRM_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textContains("立即退出")')
+    # 退出登录按钮（设置页底部）。中文“退出登录” / 英文“Sign Out”。
+    LOGOUT_BUTTON = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("退出登录|Sign Out")')
+    # 退出确认弹窗标题。中文“立即退出 OSAIO？” / 英文“Sign out of OSAIO now?”，用于判断弹窗已出现。
+    LOGOUT_CONFIRM_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(立即退出|Sign out of).*")')
     # 邮箱文本（资料头部内），作为进入账户设置的兜底点击目标。
     PROFILE_EMAIL = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textContains("@")')
     DENY_BUTTON = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("不允许|Deny|Cancel")')
@@ -113,11 +114,15 @@ class AccountPage(BasePage):
     # 关键：底部弹窗在重启后会“延迟数秒”才弹出，所以必须在每次点击 tab 前重新检测并关闭；
     # 两类界面都可用系统返回键关闭（实测有效）。它们的 tab 仍在无障碍树中，
     # 会导致 is_home_displayed() 误判为“在首页”。
+    # 语言无关：优先用 descriptionContains("add-device")；文本标记同时保留中/英两套。
     ADD_DEVICE_POPUP_MARKERS = [
+        'new UiSelector().descriptionContains("add-device")',
         'new UiSelector().textContains("添加新设备")',
         'new UiSelector().textContains("正在搜索附近的设备")',
         'new UiSelector().textContains("所有设备")',
-        'new UiSelector().descriptionContains("add-device")',
+        'new UiSelector().textContains("Add New Device")',
+        'new UiSelector().textContains("Searching for nearby")',
+        'new UiSelector().textContains("All Devices")',
     ]
 
     def _add_device_page_present(self):

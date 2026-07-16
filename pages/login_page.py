@@ -16,9 +16,11 @@ class LoginPage(BasePage):
     PASSWORD_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(1)")
     # 或者使用：PASSWORD_INPUT = (AppiumBy.XPATH, "//android.widget.EditText[@password='true' or @hint='Password']")
     
-    LOGIN_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"登录\").instance(1)")
-    REGISTER_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"注册\")")
-    FORGOT_PWD_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"忘记密码\")")
+    # App 语言可能为中/英。登录页顶部有一个“登录/Sign In”入口(instance 0)，
+    # 表单底部有“登录/Sign In”按钮(instance 1)；用 textMatches 语言无关匹配 + instance(1) 取按钮。
+    LOGIN_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("登录|Sign In").instance(1)')
+    REGISTER_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("注册|Sign Up")')
+    FORGOT_PWD_LINK = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(忘记密码|Forgot Password).*")')
     
     # 清除按钮（通常在输入框右侧）
     ACCOUNT_CLEAR_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.view.ViewGroup\").instance(16)")
@@ -232,10 +234,10 @@ class LoginPage(BasePage):
             # 已有输入框 → 在表单
             if self.driver.find_elements(*self.ACCOUNT_INPUT):
                 return True
-            # 尝试点顶部“登录”入口（welcome 页的登录按钮为 instance(0)）
+            # 尝试点顶部“登录/Sign In”入口（welcome 页的登录入口为 instance(0)）
             try:
-                if self.is_displayed(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("登录")', timeout=2):
-                    self.click(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().text("登录").instance(0)')
+                if self.is_displayed(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("登录|Sign In")', timeout=2):
+                    self.click(AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("登录|Sign In").instance(0)')
                     time.sleep(1.5)
             except Exception:
                 time.sleep(1)
@@ -277,17 +279,18 @@ class LoginPage(BasePage):
         if self.wait_for_login_page(timeout=6):
             return True
 
-        # 仍不是登录页：若在首页，走账户设置页退出登录（logout 自包含完整导航）
-        from pages.home_page import HomePage
-        if HomePage(self.driver).is_home_displayed():
-            try:
-                from pages.account_page import AccountPage
-                if AccountPage(self.driver).logout():
-                    return self.wait_for_login_page(timeout=8)
-                else:
-                    print("退出登录未成功")
-            except Exception as e:
-                print(f"退出登录异常: {e}")
+        # 仍不是登录页 → 处于已登录态（首页 / “添加新设备”全屏页 / 其它子页），
+        # 直接走账户设置退出登录。logout() 自包含完整导航（会先关闭“添加新设备”页再进账户 tab），
+        # 因此这里不再用 is_home_displayed() 做前置门槛——重启后常停在添加设备页，
+        # 该门槛会误判 is_home_displayed()=False 而跳过登出，导致前置失败（真机实测的偶发点）。
+        try:
+            from pages.account_page import AccountPage
+            if AccountPage(self.driver).logout():
+                return self.wait_for_login_page(timeout=8)
+            else:
+                print("退出登录未成功")
+        except Exception as e:
+            print(f"退出登录异常: {e}")
 
         return self.wait_for_login_page(timeout=3)
 
