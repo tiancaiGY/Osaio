@@ -7,11 +7,13 @@ class HomePage(BasePage):
     # 元素定位 - 需要用 Appium Inspector 确认实际 ID
     ADD_DEVICE_BTN = (AppiumBy.ACCESSIBILITY_ID, "new UiSelector().className(\"android.view.ViewGroup\").instance(39)")
     DEVICE_LIST = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().text(\"All Types\")")
-    # 底部 tab 用 content-desc 定位。应用为中文界面（首页/事件/帐户），但 "tab, N of 3"
-    # 后缀在各语言下保持不变，故用 descriptionContains 做语言无关匹配。
-    TAB_HOME = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 1 of 3")')
-    TAB_MESSAGE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 2 of 3")')
-    TAB_MINE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 3 of 3")')
+    # 底部 tab 用 content-desc 定位。tab 数量随账号变化（部分账号 3 个 Home/Events/Account，
+    # 部分 4 个含 Alarm），故 **不能**写死 "of 3"。改用角色名前缀（Home/Events/Account）匹配，
+    # 与 tab 总数无关；这些角色名在 content-desc 里稳定出现（形如 "Home, tab, 1 of 4"）。
+    # 注：Account tab 始终是最后一个（3 of 3 或 4 of 4）。
+    TAB_HOME = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Home|首页).*tab.*")')
+    TAB_MESSAGE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Events|Message|事件|消息).*tab.*")')
+    TAB_MINE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Account|帐户|账户).*tab.*")')
 
 
     def is_home_displayed(self):
@@ -42,10 +44,11 @@ class HomePage(BasePage):
         """
         from appium.webdriver.common.appiumby import AppiumBy
         from time import sleep
-        # 优先“允许/继续”，其次“拒绝/取消”，兼顾中英与带撇号写法
+        # 优先“允许/继续/跳过”，其次“拒绝/取消”，兼顾中英与带撇号写法。
+        # 含首装后的“New Subscription Plans”订阅推广页（Skip for Now）等一次性插屏。
         patterns = [
-            "允许|Allow|While using the app|Only this time|OK|好|确定",
-            "不允许|Don.t allow|Deny|取消|Cancel|拒绝",
+            "允许|Allow|While using the app|Only this time|OK|好|确定|Skip for Now|Skip|跳过|Maybe Later|稍后|Got it|知道了|I Got It",
+            "不允许|Don.t allow|Deny|取消|Cancel|拒绝|Close|关闭",
         ]
         dismissed = False
         for _ in range(max_rounds):

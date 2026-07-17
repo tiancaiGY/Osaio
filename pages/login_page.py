@@ -27,11 +27,11 @@ class LoginPage(BasePage):
     # 密码可见按钮
     PASSWORD_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.view.ViewGroup\").instance(19)")
     
-    # 首页元素（用于检查是否已登录）。中文界面下 content-desc 为“首页/事件/帐户, tab, N of 3”，
-    # 用 descriptionContains 匹配语言无关的 "tab, N of 3" 后缀。
-    TAB_HOME = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 1 of 3")')
-    TAB_Event = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 2 of 3")')
-    TAB_Account = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 3 of 3")')
+    # 首页元素（用于检查是否已登录）。tab 数量随账号变化（3 或 4 个），故用角色名
+    # （Home/Events/Account）匹配 content-desc，与 tab 总数无关。
+    TAB_HOME = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Home|首页).*tab.*")')
+    TAB_Event = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Events|Message|事件|消息).*tab.*")')
+    TAB_Account = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Account|帐户|账户).*tab.*")')
 
     # 错误提示元素。中文界面：错误密码提示为“密码不正确.”（末尾带句点，用 textContains 匹配）。
     # 注意：单个 UiSelector 里多个 textContains 是“相与”，会永不命中，故用 textMatches 做“相或”。

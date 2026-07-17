@@ -5,8 +5,9 @@ import os
 
 
 class AccountPage(BasePage):
-    # 中文界面 content-desc 为“帐户, tab, 3 of 3”，用 descriptionContains 做语言无关匹配。
-    ACCOUNT_TAB = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionContains("tab, 3 of 3")')
+    # 帐户 tab。tab 数量随账号变化（3 或 4 个），不能写死 "3 of 3"。用角色名 Account/帐户
+    # 匹配（content-desc 形如 "Account, tab, 3 of 3" 或 "... 4 of 4"），与总数无关。
+    ACCOUNT_TAB = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i).*(Account|帐户|账户).*tab.*")')
     # 帐户 tab 落地页的“资料头部”（含头像/邮箱），点击后进入“账户设置”页。无 id，用 viewgroup 索引兜底。
     ACCOUNT_SETTINGS = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().className("android.view.ViewGroup").instance(14)')
     # 已进入“账户设置”页的标识。App 语言可能为中/英，用 textMatches 做语言无关匹配

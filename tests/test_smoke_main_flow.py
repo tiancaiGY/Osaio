@@ -84,12 +84,18 @@ class TestSmokeMainFlow:
         self._email = _gen_temp_email()
         self._password = REGISTER_PASSWORD
 
-        # ---- 步骤 0（可选）：重现首次安装（清 App 数据）----
-        fresh = os.environ.get("FRESH_INSTALL") == "1"
-        if fresh:
+        # ---- 步骤 0：首次安装重置（始终执行）----
+        # 用户定义的主流程本就以“首次安装 App 打开”为起点。始终 pm clear 让每轮都从
+        # 干净的首装状态开始 → 直达引导/登录页，避免依赖脆弱的 UI 登出做前置
+        # （历史踩坑：残留已登录会话 + 绑定设备的 BLE 弹窗会让账户页导航/登出卡死）。
+        # SMOKE_NO_RESET=1 可跳过清数据（沿用现状，供特殊调试）。
+        skip_reset = os.environ.get("SMOKE_NO_RESET") == "1"
+        if not skip_reset:
             step("0. 首次安装重置（pm clear）", lambda: self._fresh_install(driver))
 
         # ---- 步骤 1：首次安装打开 → 引导页 ----
+        # FRESH_INSTALL=1 时断言确实经过引导页；否则尽力而为。
+        fresh = os.environ.get("FRESH_INSTALL") == "1" and not skip_reset
         step("1. 打开 App 进入引导页", lambda: self._onboarding(login_page, fresh))
 
         # ---- 步骤 2：注册新用户（自动登录）----
@@ -137,12 +143,25 @@ class TestSmokeMainFlow:
         time.sleep(4)
 
     def _onboarding(self, login_page, fresh):
-        """处理首次启动引导页。FRESH_INSTALL 下要求确实经过引导；否则尽力而为。"""
-        saw_form = login_page.skip_onboarding()
-        # skip_onboarding 返回是否已到登录表单；非首装时可能本就无引导，均可接受。
-        if not saw_form:
-            # 未直接到表单也可能是停在 welcome 页，交由后续 _reach_login_form 处理
-            print("skip_onboarding 未直达登录表单（可能停在 welcome 页，后续会处理）")
+        """处理首次启动引导页（pm clear 后为 Terms “Agree” 门 + 可能的 welcome 页）。
+
+        FRESH_INSTALL=1：要求确实见到引导页元素（Agree/Terms/Let's Start）。
+        随后确保推进到登录表单（skip_onboarding 点 Agree；ensure_login_page 兜底进表单）。
+        """
+        from appium.webdriver.common.appiumby import AppiumBy
+        # 首装后引导页标志（Terms & Conditions / Agree / Let's Start）
+        onboarding_markers = (
+            AppiumBy.ANDROID_UIAUTOMATOR,
+            'new UiSelector().textMatches("(?i).*(Terms\\s*&|Agree|同意|Let.?s Start|开始|Get Started).*")')
+        saw_onboarding = login_page.is_displayed(*onboarding_markers, timeout=5)
+        if fresh:
+            assert saw_onboarding, "FRESH_INSTALL 下未检测到首次安装引导页（Agree/Terms）"
+        print(f"引导页可见: {saw_onboarding}")
+
+        # 点过引导（同意）；无引导时为安全空跑
+        login_page.skip_onboarding()
+        # 确保推进到登录表单（welcome 页需点顶部“登录”入口露出表单）
+        assert login_page.ensure_login_page(), "引导后未能进入登录页/登录表单"
 
     def _register(self, driver, login_page):
         """临时邮箱注册 → 取码 → 设密 → 自动登录到首页。"""
