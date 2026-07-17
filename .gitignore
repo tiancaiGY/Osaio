@@ -42,3 +42,18 @@ allure-results/
 allure-report/
 test-results/
 debug.py
+
+# 测试运行中间产物（诊断 page_source/截图、时间戳报告、探针脚本、失败截图目录）
+# 保留：注册账号台账 CSV、已跟踪的示例报告（demo_report.*、report/test_report.*）
+reports/page_source_*.xml
+reports/screenshot_*.png
+reports/register_*.xml
+reports/register_*.png
+reports/probe_*
+reports/test_report_*.html
+reports/test_report_*.json
+reports/screenshots/
+reports/_cmd.txt
+reports/trace_restart.txt
+report/register_step1_*
+!reports/registered_accounts.csv
