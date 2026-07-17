@@ -35,8 +35,9 @@ class RegisterPage(BasePage):
     # 第三步：设置密码页面元素
     PASSWORD_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(0)")
     CONFIRM_PASSWORD_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\").instance(1)")
-    PASSWORD_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Password|密码).*")')
-    CONFIRM_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("Confirm|确认")')
+    PASSWORD_TITLE = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches(".*(Set password|设置密码|Password|密码).*")')
+    # 设密页提交按钮实测文案为“Submit”（非 Confirm）；中英双语兼容。
+    CONFIRM_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("Submit|提交|Confirm|确认|完成|Done")')
 
     # 国家选择页面元素（实测标题为“Country List”，含“Search”搜索框，条目如“China”“Afghanistan (+93)”）
     COUNTRY_SEARCH_INPUT = (AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().className(\"android.widget.EditText\")")
@@ -265,26 +266,68 @@ class RegisterPage(BasePage):
 
             return "未知错误，未进入验证码页面"
     
+    def _find_otp_input(self):
+        """定位验证码页真正的 OTP 输入框。
+
+        真机实测：验证码页是 RN 覆盖层，DOM 里同时存在底层注册页的邮箱 EditText
+        （可见、y≈1161、text 为邮箱）和验证码页的**隐藏 OTP EditText**
+        （很窄、位于 6 个数字框上方、y<900）。className 取 instance(0) 会误命中邮箱框。
+        这里排除“含 @ 的邮箱框”，优先取位置最靠上的那个 EditText 作为 OTP 输入。
+        返回元素或 None。
+        """
+        eds = self.driver.find_elements(AppiumBy.CLASS_NAME, "android.widget.EditText")
+        cands = []
+        for e in eds:
+            try:
+                txt = e.text or ""
+                r = e.rect
+            except Exception:
+                continue
+            if "@" in txt:  # 邮箱框，跳过
+                continue
+            cands.append((r.get("y", 99999), e))
+        if not cands:
+            return None
+        cands.sort()  # y 最小（最靠上）的即 OTP 隐藏输入框
+        return cands[0][1]
+
     def register_step2_input_verification_code(self, verification_code):
         """
         注册第二步：输入验证码
         :param verification_code: 验证码
         :return: 密码设置页面对象或错误消息
+
+        真机实测：验证码页为 6 位数字框 + 隐藏 OTP 输入框，**无显式“验证/下一步”按钮**，
+        输满 6 位后自动跳转到设密页。故本方法输入到 OTP 框后，直接等待设密页出现，
+        仅在存在 VERIFY_BTN 时才点击（兼容其它版本）。
         """
         print("=== 注册第二步：输入验证码 ===")
-        
+
         # 确保在验证码页面
         if not self.is_displayed(*self.VERIFICATION_TITLE, timeout=5):
             return "不在验证码页面"
-        
-        # 输入验证码
-        self.input_text(*self.VERIFICATION_CODE_INPUT, verification_code)
+
+        # 输入验证码到正确的隐藏 OTP 框（不是邮箱框）
+        otp = self._find_otp_input()
+        if otp is None:
+            self._save_step_diag("verif_no_otp_input")
+            return "未找到验证码输入框"
+        try:
+            otp.click()
+            otp.clear()
+        except Exception:
+            pass
+        otp.send_keys(verification_code)
         print(f"输入验证码: {verification_code}")
-        
-        # 点击验证按钮
-        self.click(*self.VERIFY_BTN)
-        print("点击验证按钮")
-        
+
+        # 若存在显式“验证/下一步”按钮则点击；否则依赖输满自动跳转
+        if self.is_displayed(*self.VERIFY_BTN, timeout=2):
+            try:
+                self.click(*self.VERIFY_BTN)
+                print("点击验证按钮")
+            except Exception:
+                pass
+
         # 等待密码设置页面加载
         try:
             self.wait.until(lambda d: self.is_displayed(*self.PASSWORD_TITLE))
@@ -292,15 +335,46 @@ class RegisterPage(BasePage):
             return self  # 返回当前页面对象，现在在密码设置页面
         except Exception as e:
             print(f"未进入密码设置页面: {e}")
-            
+
             # 检查验证码错误
             if self.is_displayed(*self.CODE_ERROR, timeout=3):
                 error_msg = self.find(*self.CODE_ERROR).text
                 print(f"验证码错误: {error_msg}")
                 return error_msg
-            
+
+            self._save_step_diag("verif_no_password_page")
             return "验证失败，未进入密码设置页面"
+
+    def _save_step_diag(self, reason):
+        """保存注册步骤诊断（page_source + 截图）到 reports/。"""
+        try:
+            os.makedirs("reports", exist_ok=True)
+            ts = time.strftime('%Y%m%d_%H%M%S')
+            with open(f"reports/register_{reason}_{ts}.xml", "w", encoding="utf-8") as f:
+                f.write(self.driver.page_source)
+            self.driver.get_screenshot_as_file(f"reports/register_{reason}_{ts}.png")
+            print(f"已保存注册诊断: reports/register_{reason}_{ts}.*")
+        except Exception as e:
+            print(f"保存注册诊断失败: {e}")
     
+    def _find_password_fields(self):
+        """定位设密页的“密码/确认密码”两个输入框（排除残留邮箱框）。
+
+        与 _find_otp_input 同理：设密页 DOM 残留底层注册页含 @ 的邮箱 EditText。
+        排除邮箱框后按 y 升序返回其余 EditText（前两个即 密码、确认密码）。
+        """
+        eds = self.driver.find_elements(AppiumBy.CLASS_NAME, "android.widget.EditText")
+        cands = []
+        for e in eds:
+            try:
+                if "@" in (e.text or ""):
+                    continue
+                cands.append((e.rect.get("y", 99999), e))
+            except Exception:
+                continue
+        cands.sort()
+        return [e for _, e in cands]
+
     def register_step3_set_password(self, password, confirm_password=None):
         """
         注册第三步：设置密码
@@ -321,35 +395,66 @@ class RegisterPage(BasePage):
         if len(password) < 6 or len(password) > 28:
             return f"密码长度必须在6-28位之间，当前长度: {len(password)}"
         
-        # 输入密码
-        self.input_text(*self.PASSWORD_INPUT, password)
-        print(f"输入密码: {'*' * len(password)}")
-        
-        # 输入确认密码
-        self.input_text(*self.CONFIRM_PASSWORD_INPUT, confirm_password)
-        print(f"输入确认密码: {'*' * len(confirm_password)}")
-        
-        # 点击确认按钮
-        self.click(*self.CONFIRM_BTN)
-        print("点击确认按钮")
-        
-        # 等待注册完成，跳转到首页
+        # 输入密码 + 确认密码。
+        # 真机实测：设密页仍是 RN 覆盖层，DOM 里残留底层注册页的邮箱 EditText（含 @）。
+        # className instance(0)/(1) 会把邮箱框算进去，导致错位。这里排除邮箱框后，
+        # 取按 y 排序的前两个 EditText 作为“密码/确认密码”。
+        pwd_fields = self._find_password_fields()
+        if len(pwd_fields) < 2:
+            self._save_step_diag("password_fields_lt2")
+            return "设密页未找到两个密码输入框"
         try:
-            from pages.home_page import HomePage
-            home_page = HomePage(self.driver)
-            home_page.wait.until(lambda d: home_page.is_home_displayed())
-            print("注册成功，已跳转到首页")
-            return home_page
+            pwd_fields[0].click(); pwd_fields[0].clear(); pwd_fields[0].send_keys(password)
+            print(f"输入密码: {'*' * len(password)}")
+            pwd_fields[1].click(); pwd_fields[1].clear(); pwd_fields[1].send_keys(confirm_password)
+            print(f"输入确认密码: {'*' * len(confirm_password)}")
         except Exception as e:
-            print(f"注册完成但未跳转到首页: {e}")
-            
-            # 检查密码错误
-            if self.is_displayed(*self.PASSWORD_ERROR, timeout=3):
-                error_msg = self.find(*self.PASSWORD_ERROR).text
-                print(f"密码设置错误: {error_msg}")
-                return error_msg
-            
-            return "密码设置完成，但未跳转到首页"
+            self._save_step_diag("password_input_failed")
+            return f"输入密码失败: {e}"
+        try:
+            self.driver.hide_keyboard()
+        except Exception:
+            pass
+
+        # 点击提交按钮（Submit）
+        if not self.is_displayed(*self.CONFIRM_BTN, timeout=3):
+            self._save_step_diag("password_no_submit_btn")
+            return "设密页未找到提交按钮"
+        self.click(*self.CONFIRM_BTN)
+        print("点击提交按钮")
+        
+        # 等待注册完成，跳转到首页。
+        # 注册成功后 App 自动登录并落到首页，但常伴“添加新设备/Add Device”全屏弹窗
+        # 盖住底部 tab，使 is_home_displayed()（检 TAB_HOME）超时。故先轮询关闭该弹窗，
+        # 再判定首页；给足时间（注册落地较慢）。
+        from pages.home_page import HomePage
+        from pages.account_page import AccountPage
+        home_page = HomePage(self.driver)
+        account_page = AccountPage(self.driver)
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            try:
+                home_page.dismiss_permission_dialogs()   # 关掉“允许通知/定位”等系统弹窗
+            except Exception:
+                pass
+            try:
+                account_page._dismiss_bluetooth_popup()  # 关掉“添加新设备”全屏弹窗
+            except Exception:
+                pass
+            if home_page.is_home_displayed():
+                print("注册成功，已跳转到首页")
+                return home_page
+            time.sleep(1.5)
+
+        print("注册完成但未检测到首页（可能弹窗持续遮挡）")
+        # 检查密码错误
+        if self.is_displayed(*self.PASSWORD_ERROR, timeout=3):
+            error_msg = self.find(*self.PASSWORD_ERROR).text
+            print(f"密码设置错误: {error_msg}")
+            return error_msg
+
+        self._save_step_diag("register_no_home_after_submit")
+        return "密码设置完成，但未跳转到首页"
     
     def register_complete_flow(self, email, verification_code, password, country="China", 
                               agree_privacy=True, agree_terms=True, confirm_password=None):

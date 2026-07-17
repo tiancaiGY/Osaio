@@ -32,17 +32,36 @@ class HomePage(BasePage):
     def go_mine(self):
         self.click(*self.TAB_MINE)
 
-    def dismiss_permission_dialogs(self):
-        """尝试关闭进入首页后可能弹出的权限或通知弹窗。"""
-        # 常见的按钮文本
-        candidates = ["不允许", "Deny", "取消", "Cancel", "拒绝"]
-        for txt in candidates:
-            try:
-                if self.tap_text(txt):
-                    # small pause
-                    from time import sleep
-                    sleep(1)
-                    return True
-            except Exception:
-                continue
-        return False
+    def dismiss_permission_dialogs(self, max_rounds=4):
+        """关闭进入首页后可能连续弹出的系统权限/通知弹窗。
+
+        真机实测注册/登录后会弹“Allow OSAIO to send you notifications?”等系统弹窗，
+        按钮为 Allow / Don't allow（还可能有定位、蓝牙等多个连续弹窗）。
+        这里优先点“允许/Allow/While using…/OK”让流程继续，其次点拒绝类按钮；
+        用 textMatches 双语匹配，循环多轮直到无弹窗。返回是否点掉过至少一个。
+        """
+        from appium.webdriver.common.appiumby import AppiumBy
+        from time import sleep
+        # 优先“允许/继续”，其次“拒绝/取消”，兼顾中英与带撇号写法
+        patterns = [
+            "允许|Allow|While using the app|Only this time|OK|好|确定",
+            "不允许|Don.t allow|Deny|取消|Cancel|拒绝",
+        ]
+        dismissed = False
+        for _ in range(max_rounds):
+            hit = False
+            for pat in patterns:
+                loc = (AppiumBy.ANDROID_UIAUTOMATOR,
+                       'new UiSelector().textMatches("(?i)(%s)")' % pat)
+                if self.is_displayed(*loc, timeout=1):
+                    try:
+                        self.click(*loc)
+                        dismissed = True
+                        hit = True
+                        sleep(1)
+                        break
+                    except Exception:
+                        continue
+            if not hit:
+                break
+        return dismissed

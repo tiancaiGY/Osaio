@@ -1,3 +1,10 @@
+"""[已弃用] 报告钩子已合并进根目录 conftest.py（pytest 只自动加载 conftest.py，
+不会加载本文件）。保留仅作历史参考，请勿再启用本文件——否则会与 conftest.py 里的
+pytest_configure / pytest_runtest_makereport / pytest_sessionfinish 钩子重复注册。
+
+可视化报告现由 conftest.py + utils/report_generator.py 提供，运行任意 pytest 命令
+即自动在 --report-dir（默认 reports/）生成 test_report_<时间戳>.html 与 .json。
+"""
 """Pytest配置文件 - 自动生成可视化测试报告"""
 import pytest
 import time

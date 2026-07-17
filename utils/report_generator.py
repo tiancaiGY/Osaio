@@ -626,8 +626,8 @@ class TestReportGenerator:
             
             # 添加截图
             if result['screenshot_path'] and os.path.exists(result['screenshot_path']):
-                # 使用相对路径
-                relative_path = os.path.relpath(result['screenshot_path'], self.report_dir)
+                # 使用相对路径（统一用正斜杠，保证 HTML 在任意平台/浏览器都能加载）
+                relative_path = os.path.relpath(result['screenshot_path'], self.report_dir).replace(os.sep, "/")
                 test_html += f"""
                 <div class="screenshot">
                     <img src="{relative_path}" alt="Test Screenshot" />
