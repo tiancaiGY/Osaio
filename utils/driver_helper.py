@@ -28,4 +28,17 @@ def create_driver(platform="android"):
     
     driver = webdriver.Remote(url, options=options)
     driver.implicitly_wait(10)
+
+    # 确保被测 App 在前台：无线调试/复用会话时，建会话后有时会停在系统桌面
+    # （launcher），导致后续页面操作都作用在错误界面上。这里显式把 App 激活到前台。
+    if platform == "android":
+        pkg = caps.get("appPackage") or caps.get("appium:appPackage")
+        if pkg:
+            try:
+                import time
+                if driver.query_app_state(pkg) < 4:  # 4 = 前台运行
+                    driver.activate_app(pkg)
+                    time.sleep(3)
+            except Exception:
+                pass
     return driver

@@ -37,6 +37,8 @@ from pages.home_page import HomePage
 from pages.account_page import AccountPage
 from pages.network_config_page import NetworkConfigPage
 from utils.temp_mail import wait_for_verification_code
+from utils.countries import get_country
+from utils.account_recorder import save_registered_account
 
 APP_PACKAGE = "com.afar.osaio"
 REGISTER_PASSWORD = "111111"          # 用户要求：注册密码固定为 111111
@@ -46,6 +48,8 @@ WIFI_PWD = NetworkConfigPage.WIFI_PWD_DEFAULT     # mmmmmmmm
 # OSAIO 验证码邮件，发件人 no-reply@eu.support.osaio.net）。可用 TEMP_EMAIL_DOMAIN 覆盖。
 TEMP_MAIL_DOMAIN = os.environ.get("TEMP_EMAIL_DOMAIN", "mailto.plus")
 CODE_TIMEOUT = int(os.environ.get("OSAIO_CODE_TIMEOUT", "180"))
+# 注册国家：默认中国+86，可用 OSAIO_COUNTRY=US|UK 切换（China/United States/United Kingdom）。
+REGISTER_COUNTRY = get_country()
 
 
 def _gen_temp_email():
@@ -183,7 +187,7 @@ class TestSmokeMainFlow:
 
         # 第一步：国家 + 邮箱 + 同意条款 → 进入验证码页
         step1 = register_page.register_step1_input_email(
-            email=self._email, country="China",
+            email=self._email, country=REGISTER_COUNTRY.name,
             agree_privacy=True, agree_terms=True,
         )
         assert isinstance(step1, RegisterPage), f"注册第一步未进入验证码页: {step1}"
@@ -202,7 +206,10 @@ class TestSmokeMainFlow:
         result = register_page.register_step3_set_password(self._password)
         assert isinstance(result, HomePage), f"注册设密后未自动登录到首页: {result}"
         assert result.is_home_displayed(), "注册完成后首页未显示"
-        print(f"注册成功并自动登录：{self._email} / {self._password}")
+        # 保存注册账号到 CSV（reports/registered_accounts.csv）
+        save_registered_account(self._email, self._password,
+                                f"{REGISTER_COUNTRY.name} ({REGISTER_COUNTRY.code})")
+        print(f"注册成功并自动登录：{self._email} / {self._password} / {REGISTER_COUNTRY.name}")
 
     def _logout_then_relogin(self, driver, login_page):
         """退出登录 → 用新注册账号重新登录。"""

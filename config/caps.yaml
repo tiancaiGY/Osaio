@@ -5,7 +5,10 @@ android:
   appActivity: com.yrcx.xuser.ui.activity.YRSplashActivity
   noReset: true
   newCommandTimeout: 300
-  deviceName: 2C011FDH3003AC
+  deviceName: 192.168.71.116:34443
+  # 部分 ROM 禁止写 secure settings，UiAutomator2 初始化删除 hidden_api_policy 会报
+  # SecurityException 导致建会话失败；忽略该错误即可正常建会话。
+  ignoreHiddenApiPolicyError: true
 
 ios:
   platformName: iOS

@@ -24,6 +24,11 @@ accounts:
   switch_b:
     account: "testa32@mailto.plus"
     password: "123456"
+  # 云存购买用例（test_cloud_storage）专用：需为“测试者账号”才有权限进入付费流程。
+  # 目前由用户提供；新注册账号暂无云存权限。
+  cloud:
+    account: "ab3@bccto.cc"
+    password: "111111"
 
 # 错误密码用例使用的“错误密码”值
 wrong_password: "wrongpassword"
