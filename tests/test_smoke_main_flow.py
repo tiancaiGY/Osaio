@@ -228,9 +228,12 @@ class TestSmokeMainFlow:
         register_page = login_page.go_register()
         assert isinstance(register_page, RegisterPage), "未能进入注册页"
 
-        # 第一步：国家 + 邮箱 + 同意条款 → 进入验证码页
+        # 第一步：国家 + 邮箱 + 同意条款 → 进入验证码页。
+        # 传入期望区号（REGISTER_COUNTRY.code，默认 +86，可由 OSAIO_COUNTRY 配置）以**校验**
+        # 选中的正是目标国家——历史 bug：搜索输错框导致误选 Algeria(+213)。
         step1 = register_page.register_step1_input_email(
             email=self._email, country=REGISTER_COUNTRY.name,
+            country_code=REGISTER_COUNTRY.code,
             agree_privacy=True, agree_terms=True,
         )
         assert isinstance(step1, RegisterPage), f"注册第一步未进入验证码页: {step1}"
