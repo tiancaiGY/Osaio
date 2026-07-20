@@ -77,7 +77,7 @@ class PlaybackPage(BasePage):
         return ok
 
     # -------------------------------------------------- 进入直播
-    def enter_live_view(self, timeout=40):
+    def enter_live_view(self, timeout=60):
         """从首页设备卡进入直播页。
 
         真机要点（用户确认）：
@@ -89,8 +89,13 @@ class PlaybackPage(BasePage):
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self.is_displayed(*self.LIVE_BIT, timeout=2):
+                # 出图后再清一次“直播前置”：首次进直播的升级弹窗/引导可能浮在直播画面上，
+                # 不清掉会挡住后续事件列表/回放控件的点击。
+                self._home.dismiss_live_view_intro()
                 return True
-            # 每轮先关“发现蓝牙设备”弹窗（会反复出现、遮挡播放键）
+            # 每轮先关“直播前置”（设备升级弹窗 + 引导流程）与“发现蓝牙设备”权限弹窗
+            # （都会反复出现、遮挡设备卡/播放键）
+            self._home.dismiss_live_view_intro()
             self._home.dismiss_permission_dialogs()
             # 找首页设备卡（列表区较宽的可点 ViewGroup），点其中心（缩略图/播放键）
             vgs = self.driver.find_elements(
@@ -110,11 +115,15 @@ class PlaybackPage(BasePage):
                 # 先点缩略图中心（播放键），再退化点元素
                 self.driver.tap([(int(r["x"] + r["width"] / 2), int(r["y"] + r["height"] / 2))])
                 time.sleep(6)
+                # 点进设备后，首次进直播会弹“设备升级弹窗 + 引导流程”，必须**在本轮**就地清理，
+                # 否则它们盖住直播画面 → 下面出图判定永远为 False（等到下一轮再清则预算已耗尽）。
+                self._home.dismiss_live_view_intro()
                 if self.is_displayed(*self.LIVE_BIT, timeout=3):
                     return True
                 try:
                     el.click()
                     time.sleep(6)
+                    self._home.dismiss_live_view_intro()
                 except Exception:
                     pass
             time.sleep(2)

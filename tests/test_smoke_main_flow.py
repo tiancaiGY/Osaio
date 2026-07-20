@@ -7,15 +7,22 @@
   4. 配网成功（现场需有真实待配网设备 + mmm_test 2.4G WiFi）
   5. 出图成功（直播）
   6. 订阅云存成功（后续补充，本期占位 skip）
-  7. IOT 设备推送消息正常（后续补充，本期占位 skip）
-  8. 消息列表显示历史消息成功
-  9. 退出登录成功
+  7. 云卡回放成功（切到 secondary 账号；依次验证 事件云回放 → 时间轴切换+滑动
+     → 卡回放(SD) → 云回放(Cloud) → 回到直播，每步均以“出图”判定）
+  8. IOT 设备推送消息正常（后续补充，本期占位 skip）
+  9. 消息列表显示历史消息成功
+  10. 退出登录成功
 
 约定：
   - 注册验证码经临时邮箱 tempmail.plus 自动获取（utils/temp_mail.py）。
   - 注册密码固定为 "111111"。
-  - 任一必需步骤失败 → 整条 smoke 立即 fail（门禁语义）；后续补充功能用 skip 占位。
-  - 每步结果通过 report_step 记录，报告里展开显示 9 个步骤。
+  - 任一必需步骤失败 → 整条 smoke 立即 fail（门禁语义）。
+  - 占位步骤（订阅云存 / IOT 推送）用 pytest.skip 标记：记为 skipped 但**不中断**整条流程，
+    后续步骤照常执行（否则报告只能显示到跳过处为止）。
+  - 云卡回放（步骤 7）需要“存在在线设备 + 云存订阅 + 历史录像/事件”的账号；主流程
+    新注册账号刚配网、无历史录像/事件，不满足前置，故该步切到 config/accounts.yaml 的
+    secondary 账号（ocn03@bccto.cc，用户确认已满足条件）后再验证，复用 test_playback 同一套页面对象。
+  - 每步结果通过 report_step 记录，报告里展开显示各步骤（passed/failed/skipped）。
 
 运行：
   pytest tests/test_smoke_main_flow.py -m smoke -s \
@@ -61,20 +68,24 @@ def _gen_temp_email():
 class TestSmokeMainFlow:
     """主功能完整正确流程（单个端到端用例）。"""
 
-    def test_main_flow_smoke(self, driver, report_step):
+    def test_main_flow_smoke(self, driver, account, report_step):
         """按顺序跑完主功能 happy-path，分步骤记录到报告。"""
         t0 = time.time()
 
         def step(name, fn):
-            """执行一步：计时、记录报告步骤、失败即 fail（附诊断）。"""
+            """执行一步：计时、记录报告步骤。
+
+            - 失败（任意非 skip 异常）→ 记 failed 并向上抛出，整条 smoke 立即 fail（门禁语义）。
+            - pytest.skip → 记 skipped 但**吞掉不再抛出**，让后续步骤照常执行
+              （订阅云存 / IOT 推送等占位步骤不应中断整条流程；否则报告只能显示到跳过处为止）。
+            """
             print(f"\n===== 步骤: {name} =====")
             s = time.time()
             try:
                 fn()
             except pytest.skip.Exception as e:
                 report_step(name, "skipped", time.time() - s, str(e))
-                print(f"⏭  跳过: {name} ({e})")
-                raise
+                print(f"⏭  跳过（占位，流程继续）: {name} ({e})")
             except Exception as e:
                 report_step(name, "failed", time.time() - s, str(e))
                 print(f"✗ 失败: {name} -> {e}")
@@ -115,29 +126,61 @@ class TestSmokeMainFlow:
         # ---- 步骤 5：出图 ----
         step("5. 出图成功（直播）", lambda: self._live_view(driver, ncp))
 
-        # ---- 步骤 6：订阅云存（后续补充）----
+        # ---- 步骤 6：订阅云存（后续补充，占位 skip；不中断后续步骤）----
         step("6. 订阅云存成功", lambda: pytest.skip("后续补充流程"))
 
-        # ---- 步骤 7：IOT 推送消息（后续补充）----
-        step("7. IOT 设备推送消息正常", lambda: pytest.skip("后续补充流程"))
+        # ---- 步骤 7：云卡回放（切到 secondary 账号验证云/卡回放出图）----
+        step("7. 云卡回放成功（云/卡回放出图）",
+             lambda: self._cloud_sd_playback(driver, login_page, account))
 
-        # ---- 步骤 8：消息列表显示历史消息 ----
-        step("8. 消息列表显示历史消息成功", lambda: self._message_list(driver))
+        # ---- 步骤 8：IOT 推送消息（后续补充，占位 skip）----
+        step("8. IOT 设备推送消息正常", lambda: pytest.skip("后续补充流程"))
 
-        # ---- 步骤 9：退出登录 ----
-        step("9. 退出登录成功", lambda: self._final_logout(driver))
+        # ---- 步骤 9：消息列表显示历史消息 ----
+        step("9. 消息列表显示历史消息成功", lambda: self._message_list(driver))
+
+        # ---- 步骤 10：退出登录 ----
+        step("10. 退出登录成功", lambda: self._final_logout(driver))
 
         print(f"\n===== 主功能 smoke 全流程完成，用时 {time.time() - t0:.1f}s =====")
 
     # ------------------------------------------------------------------ 步骤实现
 
+    @staticmethod
+    def _adb_serial(driver):
+        """确定 adb 目标设备序列号。
+
+        多设备同时连接时，裸 `adb shell` 会因 “more than one device/emulator” 直接失败，
+        故必须用 `-s <serial>` 指定本会话实际操作的设备。优先取会话绑定设备（driver
+        capabilities 的 udid/deviceName，即 Appium 真正连上的那台），其次取 config/caps.yaml
+        的 deviceName，最后可用环境变量 ANDROID_SERIAL / OSAIO_DEVICE_SERIAL 覆盖。
+        返回 None 表示未知（此时退回裸 adb，仅单设备场景可用）。
+        """
+        env = os.environ.get("OSAIO_DEVICE_SERIAL") or os.environ.get("ANDROID_SERIAL")
+        if env:
+            return env
+        try:
+            caps = getattr(driver, "capabilities", None) or {}
+            for k in ("udid", "deviceUDID", "appium:udid", "deviceName", "appium:deviceName"):
+                v = caps.get(k)
+                if v:
+                    return v
+        except Exception:
+            pass
+        try:
+            from utils.driver_helper import load_config
+            return (load_config().get("android", {}) or {}).get("deviceName")
+        except Exception:
+            return None
+
     def _fresh_install(self, driver):
         """adb 清除 App 数据以重现首次安装，然后重启 App。"""
+        serial = self._adb_serial(driver)
+        cmd = ["adb"] + (["-s", serial] if serial else []) + ["shell", "pm", "clear", APP_PACKAGE]
         try:
-            subprocess.run(["adb", "shell", "pm", "clear", APP_PACKAGE],
-                           check=True, capture_output=True, timeout=30)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=30)
         except Exception as e:
-            pytest.fail(f"pm clear 失败（无法重现首次安装）: {e}")
+            pytest.fail(f"pm clear 失败（无法重现首次安装，adb 目标={serial or '默认'}）: {e}")
         time.sleep(2)
         # 清数据后需重新拉起 App
         try:
@@ -237,14 +280,54 @@ class TestSmokeMainFlow:
         print(f"配网成功，设备昵称: {ncp.last_nickname}")
 
     def _live_view(self, driver, ncp):
-        """配网完成后进入直播页验证出图。"""
+        """配网完成后进入直播页验证出图。
+
+        首次进直播（新配网设备）设备端会先弹“New Device Firmware Found”升级弹窗 + 引导流程，
+        二者会盖住直播画面导致出图判定失败，故验证前先做“直播前置”清理（勾 Don't remind + Not Now、
+        逐步点下一步关引导），出图后再清一次（引导有时在出图后才浮出）。
+        """
+        home = HomePage(driver)
+        home.dismiss_live_view_intro()
         assert ncp.verify_live_view(), "直播页出图异常（未检测到视频/码率/控制按钮）"
+        home.dismiss_live_view_intro()
         # 回到首页，便于后续消息列表步骤
         try:
             driver.back()
             time.sleep(2)
         except Exception:
             pass
+
+    def _cloud_sd_playback(self, driver, login_page, account):
+        """云卡回放：切到 secondary 账号（满足回放前置）后验证云/卡回放各场景出图。
+
+        为什么切账号：云/卡回放需要“存在在线设备 + 云存订阅 + 历史录像/事件”的账号；主流程
+        新注册账号刚配网、无历史录像/事件，不满足前置。secondary（ocn03@bccto.cc）经用户确认
+        已满足条件（在线设备 GP5B）。smart_login(force_login=True) 会先登出当前新注册账号再登入
+        secondary，故此步之后 App 处于 secondary 会话（后续消息列表 / 最终登出照常在该会话执行）。
+
+        复用 pages/playback_page.py（与独立用例 test_playback.py 同一套）：进入直播出图 →
+        点事件云回放 → 时间轴切换+滑动 → 卡回放(SD) → 云回放(Cloud) → 回到直播，
+        每一子步均以出图（bit_rate 出现）判定，任一未出图即 fail。
+        """
+        from pages.playback_page import PlaybackPage
+
+        acc = account("secondary")   # ocn03@bccto.cc / 123456（在线设备 GP5B）
+        pb = PlaybackPage(driver)
+
+        # 切换到 secondary 账号（force_login 内部先登出当前会话再登入）
+        home = login_page.smart_login(
+            account=acc.account, password=acc.password, force_login=True)
+        HomePage(driver).dismiss_permission_dialogs()
+        assert home.is_home_displayed(), "切到 secondary 账号后首页未显示"
+
+        # 云/卡回放六步（复用 PlaybackPage），任一未出图即 fail
+        assert pb.enter_live_view(), "未能进入设备直播页（出图）"
+        assert pb.play_first_event(), "点击事件后云回放未出图"
+        assert pb.switch_timeline_and_swipe(), "时间轴回放未出图"
+        assert pb.switch_to_sd(), "卡回放(SD)未出图"
+        assert pb.switch_to_cloud(), "云回放(Cloud)未出图"
+        assert pb.back_to_live(), "回到直播未出图"
+        print(f"云卡回放全部出图正常（账号 {acc.account}）")
 
     def _message_list(self, driver):
         """进入消息/事件列表，验证列表页出现。"""

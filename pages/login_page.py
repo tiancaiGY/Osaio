@@ -346,9 +346,24 @@ class LoginPage(BasePage):
         # 输入并登录
         self._do_login(account, password)
 
-        # 等待登录完成，返回首页对象
+        # 等待登录完成，返回首页对象。
+        # 首装后**首次**登录会连续弹系统权限（通知/定位/蓝牙）与设备“升级弹窗”盖住首页，
+        # 使 is_home_displayed() 迟迟不满足而超时（noReset 的非首装登录已授权、无此问题）。
+        # 故边关这些弹窗边等首页出现；仍不出现时再走一次显式等待，保持原有失败语义。
+        import time as _time
         home_page = HomePage(self.driver)
-        home_page.wait.until(lambda d: home_page.is_home_displayed())
+        deadline = _time.time() + 25
+        while _time.time() < deadline:
+            if home_page.is_displayed(*home_page.TAB_HOME, timeout=1):
+                break
+            try:
+                home_page.dismiss_permission_dialogs(max_rounds=1)
+                home_page.dismiss_firmware_upgrade_dialog()
+            except Exception:
+                pass
+            _time.sleep(0.5)
+        if not home_page.is_displayed(*home_page.TAB_HOME, timeout=2):
+            home_page.wait.until(lambda d: home_page.is_home_displayed())
         print("登录成功，已进入首页")
         return home_page
 
