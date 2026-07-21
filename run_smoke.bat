@@ -8,9 +8,18 @@ REM  可选环境变量（运行前 set）：
 REM    OSAIO_IOT_PUSH_TIMEOUT=90   IoT 推送监听秒数（默认 150）
 REM    OSAIO_SKIP_IOT_PUSH=1       跳过 IoT 推送验证
 REM    SMOKE_NO_RESET=1            跳过 pm clear（沿用现状调试）
+REM
+REM  参数：
+REM    --mail   测试结束后把报告邮件发到收件人（等价 set OSAIO_MAIL_SEND=1）
+REM             收件人默认 mark.guo@apemans.com，可用 OSAIO_MAIL_TO 覆盖；
+REM             SMTP 需先配好 OSAIO_SMTP_USER / OSAIO_SMTP_PASSWORD（见 utils/report_mailer.py）。
 REM ============================================================
 setlocal
 cd /d "%~dp0"
+
+REM 解析参数：--mail 开启报告邮件发送
+if /I "%~1"=="--mail" set "OSAIO_MAIL_SEND=1"
+if defined OSAIO_MAIL_SEND echo [run_smoke] 报告邮件发送已开启（OSAIO_MAIL_SEND=%OSAIO_MAIL_SEND%）
 
 REM 优先用项目内 venv 的 python，否则用 PATH 里的 python
 set "PY=python"

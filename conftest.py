@@ -233,3 +233,13 @@ def pytest_sessionfinish(session, exitstatus):
         print("=" * 60 + "\n")
     except Exception as e:
         print(f"生成报告失败（不影响测试执行）: {e}")
+        html_path = None
+
+    # 可选：把报告邮件发到收件人（仅当 OSAIO_MAIL_SEND=1）。任何异常都吞掉，绝不影响测试结果。
+    try:
+        from utils.report_mailer import send_report_if_enabled
+        attempted, ok, message = send_report_if_enabled(report_path=html_path)
+        if attempted:
+            print(f"[报告邮件] {'成功' if ok else '未发送'}: {message}")
+    except Exception as e:
+        print(f"发送报告邮件失败（不影响测试执行）: {e}")

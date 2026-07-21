@@ -8,9 +8,18 @@
 #    OSAIO_IOT_PUSH_TIMEOUT=90   IoT 推送监听秒数（默认 150）
 #    OSAIO_SKIP_IOT_PUSH=1       跳过 IoT 推送验证
 #    SMOKE_NO_RESET=1            跳过 pm clear（沿用现状调试）
+#
+#  参数：
+#    --mail   测试结束后把报告邮件发到收件人（等价 OSAIO_MAIL_SEND=1）
+#             收件人默认 mark.guo@apemans.com，可用 OSAIO_MAIL_TO 覆盖；
+#             SMTP 需先配好 OSAIO_SMTP_USER / OSAIO_SMTP_PASSWORD（见 utils/report_mailer.py）。
 # ============================================================
 set -u
 cd "$(dirname "$0")"
+
+# 解析参数：--mail 开启报告邮件发送
+if [ "${1:-}" = "--mail" ]; then export OSAIO_MAIL_SEND=1; fi
+[ "${OSAIO_MAIL_SEND:-}" = "1" ] && echo "[run_smoke] 报告邮件发送已开启（OSAIO_MAIL_SEND=1）"
 
 # 优先用项目内 venv 的 python
 if [ -x "venv/Scripts/python.exe" ]; then PY="venv/Scripts/python.exe"      # Windows venv
