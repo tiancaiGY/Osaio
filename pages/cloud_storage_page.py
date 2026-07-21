@@ -46,6 +46,13 @@ class CloudStoragePage(BasePage):
     # 支付成功页“Done”按钮：点击后跳回 App。
     DONE_BTN = (AppiumBy.ANDROID_UIAUTOMATOR, 'new UiSelector().textMatches("(?i)(Done|完成|返回|Back to App|好的|OK)")')
 
+    # 币种选择弹窗（**不总出现**）：真机确认 title="Select Currency"，选项 USD / CAD，可"Not now"。
+    # 出现时会盖住套餐/付款流程，必须先选币种（用户要求选 USD）才能继续到付款页。
+    CURRENCY_DIALOG = (AppiumBy.ANDROID_UIAUTOMATOR,
+                       'new UiSelector().textMatches("(?i).*(Select Currency|选择货币|选择币种|币种|currency).*")')
+    CURRENCY_USD = (AppiumBy.ANDROID_UIAUTOMATOR,
+                    'new UiSelector().textMatches("(?i).*(USD|US Dollar|美元|美金).*")')
+
     def __init__(self, driver):
         super().__init__(driver)
         self._account = AccountPage(driver)
@@ -63,6 +70,26 @@ class CloudStoragePage(BasePage):
         if not els:
             return False
         self._coord_tap(els[0])
+        return True
+
+    def select_currency_if_present(self, timeout=2):
+        """若出现“Select Currency”弹窗（不总出现），选择 USD 继续。返回是否处理了弹窗。
+
+        真机确认：该弹窗盖住套餐/付款流程，选项 USD / CAD，用户要求选 USD。选中后价格以
+        USD 展示并保存偏好，方能继续到付款页。用坐标点击（选项常为不可点击 TextView）。
+        """
+        if not self._present(self.CURRENCY_DIALOG, timeout=timeout):
+            return False
+        print("检测到币种选择弹窗，选择 USD")
+        if not self._tap_text_coord(self.CURRENCY_USD, timeout=5):
+            # 退化：扫描含 USD 的元素坐标点击
+            els = self.driver.find_elements(*self.CURRENCY_USD)
+            if els:
+                self._coord_tap(els[0])
+            else:
+                self._save_diag("currency_no_usd_option")
+                return False
+        time.sleep(2)
         return True
 
     def _present(self, locator, timeout=1):
@@ -108,6 +135,8 @@ class CloudStoragePage(BasePage):
             self._save_diag("no_cloud_storage_option")
             return False
         time.sleep(4)
+        # 进入订阅页时可能弹“Select Currency”（不总出现）→ 选 USD
+        self.select_currency_if_present(timeout=2)
         return self._present(self.SUBSCRIBE_TEXT, timeout=6)
 
     def tap_subscribe_on_plan_entry(self):
@@ -115,6 +144,8 @@ class CloudStoragePage(BasePage):
 
         该 Subscribe 是不可点击 TextView，需坐标点其外层按钮。取最上方的 Subscribe。
         """
+        # 点 Subscribe 前后都可能弹币种选择 → 选 USD
+        self.select_currency_if_present(timeout=1)
         els = self.driver.find_elements(*self.SUBSCRIBE_TEXT)
         if not els:
             self._save_diag("no_subscribe_button")
@@ -123,17 +154,21 @@ class CloudStoragePage(BasePage):
         target = min(els, key=lambda e: (e.location or {}).get("y", 0))
         self._coord_tap(target)
         time.sleep(6)
+        self.select_currency_if_present(timeout=2)
         # 进入套餐列表：出现 Annual / Monthly / Yearly
         return self._present(self.ANNUAL_TEXT, timeout=8) or self._present(_tc("Yearly"), timeout=2)
 
     def choose_annual_plan(self):
         """套餐列表点击“Annual subscription”，跳转到（WebView 渲染的）付款页。"""
+        # 套餐页/点击后都可能弹币种选择 → 选 USD
+        self.select_currency_if_present(timeout=1)
         if not self._tap_text_coord(self.ANNUAL_TEXT, timeout=8):
             self._save_diag("no_annual_plan")
             return False
-        # 付款页加载较慢，轮询等待卡号/付款方式出现
+        # 付款页加载较慢，轮询等待卡号/付款方式出现；期间若弹币种则选 USD
         for _ in range(10):
             time.sleep(2)
+            self.select_currency_if_present(timeout=1)
             if self._present(self.SAVED_CARD_4242, timeout=1) or self._present(_tc("Payment Method"), timeout=1):
                 return True
         self._save_diag("no_payment_page")

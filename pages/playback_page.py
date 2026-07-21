@@ -127,6 +127,11 @@ class PlaybackPage(BasePage):
                 except Exception:
                     pass
             time.sleep(2)
+        # 循环预算耗尽前做最后一次出图判定：真机上出图有时恰在 deadline 附近才稳定，
+        # 若此刻已出 bit_rate 仍算成功（避免误判——诊断曾显示页面已出图却返回 False）。
+        if self.is_displayed(*self.LIVE_BIT, timeout=3):
+            self._home.dismiss_live_view_intro()
+            return True
         self._save_diag("enter_live_failed")
         return False
 

@@ -168,413 +168,218 @@ class TestReportGenerator:
         print(f"测试报告已生成: {report_path}")
         return report_path
     
+    # ------------------------------------------------------------------ 样式化 HTML
+    # 报告样式对齐 report/test_report.html（Apple 风格）：测试环境 + 编号步骤表(#/步骤/状态/说明)
+    # + 4 项总结卡（总测试数/通过/失败/通过率）。用例的“步骤”是报告主体（smoke 为分步骤用例）。
+
+    STATUS_LABEL = {"passed": "通过", "failed": "失败", "skipped": "跳过", "error": "错误"}
+
+    @staticmethod
+    def _esc(text) -> str:
+        """HTML 转义，防止说明/错误文本里的 <>& 破坏结构。"""
+        s = "" if text is None else str(text)
+        return (s.replace("&", "&amp;").replace("<", "&lt;")
+                 .replace(">", "&gt;").replace('"', "&quot;"))
+
+    def collect_environment(self) -> Dict[str, str]:
+        """收集测试环境信息（尽力而为，任何缺失都用占位符，绝不抛出）。
+
+        操作系统展示的是**手机**系统及版本（非跑测试的桌面），并附目标 App 版本号——
+        二者优先用外部注入值（set_environment，来自 driver caps），否则用 adb 兜底读取。
+        """
+        import platform
+        env: Dict[str, str] = {}
+        env["报告标题"] = self.report_title
+        env["生成时间"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        env["Python"] = platform.python_version()
+        # 依赖版本（存在才显示；优先包元数据，回退模块 __version__）
+        try:
+            from importlib.metadata import version as _pkg_version
+        except Exception:
+            _pkg_version = None
+        for dist, mod, label in (
+            ("Appium-Python-Client", "appium", "Appium-Python-Client"),
+            ("selenium", "selenium", "Selenium"),
+            ("pytest", "pytest", "pytest"),
+        ):
+            ver = None
+            if _pkg_version is not None:
+                try:
+                    ver = _pkg_version(dist)
+                except Exception:
+                    ver = None
+            if ver is None:
+                try:
+                    ver = getattr(__import__(mod), "__version__", None)
+                except Exception:
+                    ver = None
+            if ver:
+                env[label] = ver
+        # 设备/账号等运行期信息由外部通过 set_environment 注入（可选，优先级最高）
+        extra = getattr(self, "_extra_env", {}) or {}
+        env.update(extra)
+        # 手机系统/机型/App 版本：外部未注入则用 adb 兜底读取
+        try:
+            from utils import adb_helper
+            serial = adb_helper.resolve_serial()
+            if serial:
+                env.setdefault("设备", serial)
+                dinfo = adb_helper.device_info(serial)
+                if "系统" not in env and dinfo.get("系统"):
+                    env["系统(手机)"] = dinfo["系统"]
+                if "型号" not in env and dinfo.get("型号"):
+                    env["型号"] = dinfo["型号"]
+                if "App版本" not in env:
+                    ver = adb_helper.app_version(serial)
+                    if ver:
+                        env["App版本(OSAIO)"] = ver
+        except Exception:
+            pass
+        # 设备兜底（若 adb 也没拿到，用 caps.yaml 的 deviceName）
+        if "设备" not in env:
+            try:
+                from utils.driver_helper import load_config
+                dev = (load_config().get("android", {}) or {}).get("deviceName")
+                if dev:
+                    env["设备"] = dev
+            except Exception:
+                pass
+        return env
+
+    def set_environment(self, **info):
+        """外部注入运行期环境信息（如 设备、账号、注册国家），会并入 collect_environment。"""
+        self._extra_env = {**getattr(self, "_extra_env", {}), **{k: str(v) for k, v in info.items()}}
+
+    def _all_steps(self) -> List[Dict[str, Any]]:
+        """把所有用例的步骤按顺序摊平为报告主表的行；无步骤的用例回退为“用例级一行”。"""
+        rows: List[Dict[str, Any]] = []
+        for result in self.test_results:
+            steps = result.get("steps") or []
+            if steps:
+                for s in steps:
+                    rows.append({
+                        "name": s.get("step_name") or "(未命名步骤)",
+                        "status": (s.get("status") or "").lower(),
+                        "message": s.get("message") or "",
+                    })
+            else:
+                # 无分步骤的用例：整条用例作为一行，错误信息作说明
+                rows.append({
+                    "name": result.get("test_name") or "(用例)",
+                    "status": (result.get("status") or "").lower(),
+                    "message": result.get("error_message") or "",
+                })
+        return rows
+
     def _generate_html_template(self, statistics: Dict[str, Any]) -> str:
-        """
-        生成HTML模板
-        :param statistics: 统计信息
-        :return: HTML内容
-        """
-        html = f"""
-<!DOCTYPE html>
+        """生成 Apple 风格 HTML 报告（对齐 report/test_report.html 样式）。"""
+        rows = self._all_steps()
+        total = len(rows)
+        passed = sum(1 for r in rows if r["status"] == "passed")
+        failed = sum(1 for r in rows if r["status"] in ("failed", "error"))
+        skipped = sum(1 for r in rows if r["status"] == "skipped")
+        pass_rate = round(passed / total * 100) if total else 0
+        # 通过率颜色：全过绿色，否则红色（与样式表 .pct 语义一致）
+        pct_color = "#30d158" if failed == 0 and total > 0 else "#ff453a"
+
+        # 测试环境表
+        env = self.collect_environment()
+        env_rows = "\n".join(
+            f"<tr><td>{self._esc(k)}</td><td>{self._esc(v)}</td></tr>" for k, v in env.items()
+        )
+
+        # 结果步骤表
+        tag_class = {"passed": "tag-pass", "failed": "tag-fail", "error": "tag-fail",
+                     "skipped": "tag-skip"}
+        result_rows = []
+        for i, r in enumerate(rows, 1):
+            st = r["status"]
+            cls = tag_class.get(st, "tag-skip")
+            label = self.STATUS_LABEL.get(st, st or "?")
+            # 说明只取首行：失败/跳过的原始 message 常带多行 assert 堆栈，表格里只需第一句
+            msg = (r["message"] or "").strip()
+            msg_first = msg.splitlines()[0] if msg else ""
+            result_rows.append(
+                f'<tr><td>{i}</td><td>{self._esc(r["name"])}</td>'
+                f'<td><span class="tag {cls}">{label}</span></td>'
+                f'<td>{self._esc(msg_first)}</td></tr>'
+            )
+        result_rows_html = "\n".join(result_rows) or \
+            '<tr><td colspan="4" style="text-align:center;color:#86868b;">暂无测试步骤</td></tr>'
+
+        # 结论文字
+        if total == 0:
+            conclusion = "未采集到测试步骤"
+        elif failed == 0:
+            conclusion = "全部步骤执行通过"
+        else:
+            conclusion = f"{failed} 个步骤失败，需排查"
+
+        duration = statistics.get("total_duration", 0)
+
+        return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{self.report_title}</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f5f5;
-            color: #333;
-            line-height: 1.6;
-        }}
-        
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px 0;
-            text-align: center;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        
-        .header h1 {{
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }}
-        
-        .header p {{
-            font-size: 1.1em;
-            opacity: 0.9;
-        }}
-        
-        .statistics {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }}
-        
-        .stat-card {{
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: center;
-            transition: transform 0.3s ease;
-        }}
-        
-        .stat-card:hover {{
-            transform: translateY(-5px);
-        }}
-        
-        .stat-card h3 {{
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }}
-        
-        .stat-card .value {{
-            font-size: 2.5em;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }}
-        
-        .stat-card.total .value {{ color: #3498db; }}
-        .stat-card.passed .value {{ color: #27ae60; }}
-        .stat-card.failed .value {{ color: #e74c3c; }}
-        .stat-card.skipped .value {{ color: #f39c12; }}
-        .stat-card.error .value {{ color: #e67e22; }}
-        .stat-card.rate .value {{ color: #9b59b6; }}
-        .stat-card.duration .value {{ color: #1abc9c; }}
-        
-        .progress-bar {{
-            width: 100%;
-            height: 8px;
-            background-color: #ecf0f1;
-            border-radius: 4px;
-            overflow: hidden;
-            margin-top: 15px;
-        }}
-        
-        .progress-fill {{
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.5s ease;
-        }}
-        
-        .progress-fill.passed {{ background-color: #27ae60; }}
-        .progress-fill.failed {{ background-color: #e74c3c; }}
-        .progress-fill.skipped {{ background-color: #f39c12; }}
-        
-        .test-results {{
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            overflow: hidden;
-            margin-bottom: 30px;
-        }}
-        
-        .test-results-header {{
-            background-color: #f8f9fa;
-            padding: 20px;
-            border-bottom: 1px solid #e9ecef;
-        }}
-        
-        .test-results-header h2 {{
-            color: #333;
-            font-size: 1.5em;
-        }}
-        
-        .test-item {{
-            border-bottom: 1px solid #e9ecef;
-            padding: 20px;
-            transition: background-color 0.3s ease;
-        }}
-        
-        .test-item:hover {{
-            background-color: #f8f9fa;
-        }}
-        
-        .test-item:last-child {{
-            border-bottom: none;
-        }}
-        
-        .test-item-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }}
-        
-        .test-name {{
-            font-weight: bold;
-            font-size: 1.1em;
-            color: #333;
-        }}
-        
-        .test-status {{
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: bold;
-            text-transform: uppercase;
-        }}
-        
-        .test-status.passed {{
-            background-color: #d4edda;
-            color: #155724;
-        }}
-        
-        .test-status.failed {{
-            background-color: #f8d7da;
-            color: #721c24;
-        }}
-        
-        .test-status.skipped {{
-            background-color: #fff3cd;
-            color: #856404;
-        }}
-        
-        .test-status.error {{
-            background-color: #f8d7da;
-            color: #721c24;
-        }}
-        
-        .test-meta {{
-            display: flex;
-            gap: 20px;
-            color: #666;
-            font-size: 0.9em;
-            margin-bottom: 10px;
-        }}
-        
-        .test-meta span {{
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }}
-        
-        .test-error {{
-            background-color: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 10px;
-            font-family: 'Courier New', monospace;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }}
-        
-        .test-steps {{
-            margin-top: 15px;
-            padding-left: 20px;
-        }}
-        
-        .test-step {{
-            padding: 10px;
-            margin-bottom: 5px;
-            background-color: #f8f9fa;
-            border-radius: 5px;
-            border-left: 4px solid #ddd;
-        }}
-        
-        .test-step.passed {{
-            border-left-color: #27ae60;
-        }}
-        
-        .test-step.failed {{
-            border-left-color: #e74c3c;
-        }}
-        
-        .test-step.skipped {{
-            border-left-color: #f39c12;
-        }}
-        
-        .screenshot {{
-            margin-top: 15px;
-            max-width: 100%;
-            border-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }}
-        
-        .screenshot img {{
-            max-width: 100%;
-            height: auto;
-            border-radius: 5px;
-        }}
-        
-        .footer {{
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            font-size: 0.9em;
-        }}
-        
-        .no-tests {{
-            text-align: center;
-            padding: 50px;
-            color: #666;
-        }}
-        
-        .chart-container {{
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
-        }}
-        
-        .chart {{
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 30px;
-            flex-wrap: wrap;
-        }}
-        
-        .pie-chart {{
-            width: 200px;
-            height: 200px;
-            border-radius: 50%;
-            position: relative;
-        }}
-        
-        .chart-legend {{
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }}
-        
-        .legend-item {{
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }}
-        
-        .legend-color {{
-            width: 20px;
-            height: 20px;
-            border-radius: 3px;
-        }}
-        
-        @media (max-width: 768px) {{
-            .statistics {{
-                grid-template-columns: repeat(2, 1fr);
-            }}
-            
-            .header h1 {{
-                font-size: 2em;
-            }}
-            
-            .test-item-header {{
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
-            }}
-        }}
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{self._esc(self.report_title)}</title>
+<style>
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f5f5f7; color: #1d1d1f; }}
+h1 {{ text-align: center; color: #1d1d1f; margin-bottom: 6px; }}
+.subtitle {{ text-align:center; color:#86868b; margin-bottom: 24px; font-size: 14px; }}
+h2 {{ color: #1d1d1f; border-bottom: 2px solid #e0e0e0; padding-bottom: 8px; margin-top: 36px; }}
+table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin: 16px 0; }}
+th, td {{ padding: 12px 16px; text-align: left; vertical-align: top; }}
+th {{ background: #1d1d1f; color: #fff; font-weight: 600; }}
+tr:nth-child(even) {{ background: #f9f9f9; }}
+.summary-box {{ display: flex; gap: 20px; justify-content: center; margin: 24px 0; flex-wrap: wrap; }}
+.summary-item {{ background: #fff; border-radius: 12px; padding: 20px 32px; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); flex: 1; min-width: 120px; }}
+.summary-item .num {{ font-size: 36px; font-weight: 700; }}
+.summary-item .label {{ font-size: 14px; color: #86868b; margin-top: 4px; }}
+.pass {{ color: #30d158; }}
+.fail {{ color: #ff453a; }}
+.skip {{ color: #ff9f0a; }}
+.tag {{ display: inline-block; padding: 2px 10px; border-radius: 20px; font-size: 13px; font-weight: 600; }}
+.tag-pass {{ background: #d1fae5; color: #065f46; }}
+.tag-fail {{ background: #fee2e2; color: #991b1b; }}
+.tag-skip {{ background: #fef3c7; color: #92400e; }}
+.pct {{ font-size: 48px; font-weight: 700; }}
+</style>
 </head>
 <body>
-    <div class="header">
-        <h1>{self.report_title}</h1>
-        <p>生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-    </div>
-    
-    <div class="container">
-        <div class="statistics">
-            <div class="stat-card total">
-                <h3>总测试数</h3>
-                <div class="value">{statistics['total_tests']}</div>
-            </div>
-            <div class="stat-card passed">
-                <h3>通过</h3>
-                <div class="value">{statistics['passed_tests']}</div>
-            </div>
-            <div class="stat-card failed">
-                <h3>失败</h3>
-                <div class="value">{statistics['failed_tests']}</div>
-            </div>
-            <div class="stat-card skipped">
-                <h3>跳过</h3>
-                <div class="value">{statistics['skipped_tests']}</div>
-            </div>
-            <div class="stat-card error">
-                <h3>错误</h3>
-                <div class="value">{statistics['error_tests']}</div>
-            </div>
-            <div class="stat-card rate">
-                <h3>通过率</h3>
-                <div class="value">{statistics['pass_rate']}%</div>
-                <div class="progress-bar">
-                    <div class="progress-fill passed" style="width: {statistics['pass_rate']}%"></div>
-                </div>
-            </div>
-            <div class="stat-card duration">
-                <h3>总耗时</h3>
-                <div class="value">{statistics['total_duration']}s</div>
-            </div>
-        </div>
-        
-        <div class="chart-container">
-            <h2 style="text-align: center; margin-bottom: 20px;">测试结果分布</h2>
-            <div class="chart">
-                <div class="pie-chart" style="background: conic-gradient(
-                    #27ae60 0deg {statistics['passed_tests'] / max(statistics['total_tests'], 1) * 360}deg,
-                    #e74c3c {statistics['passed_tests'] / max(statistics['total_tests'], 1) * 360}deg {(statistics['passed_tests'] + statistics['failed_tests']) / max(statistics['total_tests'], 1) * 360}deg,
-                    #f39c12 {(statistics['passed_tests'] + statistics['failed_tests']) / max(statistics['total_tests'], 1) * 360}deg {(statistics['passed_tests'] + statistics['failed_tests'] + statistics['skipped_tests']) / max(statistics['total_tests'], 1) * 360}deg,
-                    #e67e22 {(statistics['passed_tests'] + statistics['failed_tests'] + statistics['skipped_tests']) / max(statistics['total_tests'], 1) * 360}deg 360deg
-                )"></div>
-                <div class="chart-legend">
-                    <div class="legend-item">
-                        <div class="legend-color" style="background-color: #27ae60;"></div>
-                        <span>通过 ({statistics['passed_tests']})</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background-color: #e74c3c;"></div>
-                        <span>失败 ({statistics['failed_tests']})</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background-color: #f39c12;"></div>
-                        <span>跳过 ({statistics['skipped_tests']})</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color" style="background-color: #e67e22;"></div>
-                        <span>错误 ({statistics['error_tests']})</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="test-results">
-            <div class="test-results-header">
-                <h2>测试详情</h2>
-            </div>
-            {self._generate_test_results_html()}
-        </div>
-    </div>
-    
-    <div class="footer">
-        <p>© 2024 Osaio UI 测试报告 | 自动化测试框架</p>
-    </div>
+
+<h1>{self._esc(self.report_title)}</h1>
+<div class="subtitle">生成时间 {env.get('生成时间', '')} · 总耗时 {duration}s</div>
+
+<h2>测试环境</h2>
+<table>
+<tr><th>项目</th><th>信息</th></tr>
+{env_rows}
+</table>
+
+<h2>测试结果</h2>
+<table>
+<thead>
+<tr><th>#</th><th>步骤</th><th>状态</th><th>说明</th></tr>
+</thead>
+<tbody>
+{result_rows_html}
+</tbody>
+</table>
+
+<h2>总结</h2>
+<div class="summary-box">
+<div class="summary-item"><div class="num">{total}</div><div class="label">总步骤数</div></div>
+<div class="summary-item"><div class="num pass">{passed}</div><div class="label">通过</div></div>
+<div class="summary-item"><div class="num fail">{failed}</div><div class="label">失败</div></div>
+<div class="summary-item"><div class="num skip">{skipped}</div><div class="label">跳过</div></div>
+<div class="summary-item"><div class="pct" style="color:{pct_color};">{pass_rate}%</div><div class="label">通过率</div></div>
+</div>
+
+<p style="text-align:center;color:#86868b;margin-top:32px;">{self._esc(conclusion)}</p>
+
 </body>
-</html>
-        """
-        
-        return html
+</html>"""
     
     def _generate_test_results_html(self) -> str:
         """

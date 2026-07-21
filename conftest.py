@@ -130,6 +130,22 @@ def report_step():
     return _record_step
 
 
+def _set_report_env(**info):
+    """向报告注入测试环境信息（设备/邮箱/国家等），显示在报告“测试环境”表。异常吞掉。"""
+    global _report_generator
+    try:
+        if _report_generator is not None:
+            _report_generator.set_environment(**info)
+    except Exception:
+        pass
+
+
+@pytest.fixture
+def report_env():
+    """用例注入“测试环境”信息：report_env(测试邮箱=..., 注册国家=...)。"""
+    return _set_report_env
+
+
 def pytest_configure(config):
     """会话开始：初始化报告生成器。"""
     global _report_generator

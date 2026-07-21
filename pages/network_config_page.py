@@ -48,6 +48,22 @@ class NetworkConfigPage(BasePage):
     NICKNAME_PAGE = _tm("设备昵称|设备名称|命名|Device Nickname|nickname")
     NEXT_BTN = _tm("下一步|Next|连接|确定|Done|完成")
 
+    # ---- 权限授予流程（新安装 App 未授予定位权限 → BLE 搜索无法触发）----
+    # 真机确认的流程（reports 探针）：
+    #   Add New Device 页搜不到设备 → “No device found.” + “Search again” 按钮
+    #   → 点 Search again → 弹 App 内权限说明 sheet（“...require the following access permissions”）
+    #     内含 “Go to Settings”
+    #   → 点 Go to Settings → 系统权限对话框（com.android.permissioncontroller）：
+    #     “Allow OSAIO to find, connect to...nearby devices?” → 点 “Allow”(permission_allow_button)
+    #   → 返回后可正常搜索。
+    ADD_DEVICE_PAGE = _tm("Add New Device|添加新设备|添加设备")
+    NO_DEVICE_FOUND = _tm("No device found|未找到设备|没有找到设备|未发现设备")
+    SEARCH_AGAIN_BTN = _tm("Search again|重新搜索|再次搜索|重新扫描|重试")
+    PERM_SHEET_MARKER = _tm("require the following access permissions|following permissions|需要以下权限|访问权限|权限")
+    GO_TO_SETTINGS_BTN = _tm("Go to Settings?|Go to Setting|去设置|前往设置|去开启|去授权")
+    SYS_ALLOW_BTN = (AppiumBy.ID, "com.android.permissioncontroller:id/permission_allow_button")
+    SYS_ALLOW_TEXT = _tm("^Allow$|^允许$|While using the app|使用应用时允许|仅在使用时允许")
+
     # ---- 直播出图（正确包名 id，复用 DevicePage）----
     LIVE_VIEW = DevicePage.LIVE_VIEW          # com.afar.osaio:id/player_render_view
     LIVE_LOG = DevicePage.LIVE_LOG            # com.afar.osaio:id/xp_live_player_stream_tag
@@ -183,18 +199,93 @@ class NetworkConfigPage(BasePage):
         return False
 
     def enter_via_plus(self, timeout=15):
-        """入口 B：点右上角“+”进入配网。"""
+        """入口 B：点右上角“+”进入配网。
+
+        新安装未授予定位权限时，进入 Add New Device 页会**搜不到任何设备**（BLE 搜索无法触发），
+        出现“No device found. / Search again”。此时先走一遍权限授予流程（grant_search_permission），
+        授予后重新搜索，才能进入正常的“设备已找到/连接中”流程。
+        """
         self._dismiss_popup()  # 先关掉可能抢焦点的弹窗
         if not self._tap_top_right_plus():
             self._save_diagnostics("entryB_plus_not_found")
             return False
         time.sleep(3)
-        # “+”可能进入“设备已找到”列表页，或直接连接
+        # 若到达 Add New Device 页且搜不到设备（缺权限）→ 先授予权限再重搜
+        if self._present(self.NO_DEVICE_FOUND, timeout=6) or self._present(self.SEARCH_AGAIN_BTN, timeout=1):
+            print("Add New Device 页未搜到设备（疑似缺定位权限），执行权限授予流程")
+            self.grant_search_permission()
+        # 授予后（或本就有权限）等待进入正常配网流程
         if self._wait_any([self.DEVICE_FOUND, self.CONNECTING,
                            self.SELECT_NETWORK], timeout=timeout) is not None:
             return True
         self._save_diagnostics("entryB_no_provision_page")
         return False
+
+    def grant_search_permission(self, max_rounds=3):
+        """授予“搜索附近设备”所需权限：Search again → Go to Settings → 系统 Allow。
+
+        真机确认：新安装未授予定位权限时，Add New Device 页搜不到设备。用户路径为
+        点“Search again”→ App 内权限说明 sheet 的“Go to Settings”→ 系统对话框点“Allow”。
+        兼具兜底：adb pm grant 直接授予定位权限（保证即使 UI 分支变化也不阻断配网）。
+        返回是否走通了授予动作（best-effort，不抛异常）。
+        """
+        acted = False
+        for _ in range(max_rounds):
+            # 1) 点 Search again（触发权限申请）
+            if self._present(self.SEARCH_AGAIN_BTN, timeout=2):
+                self._tap_locator(self.SEARCH_AGAIN_BTN, timeout=3)
+                acted = True
+                time.sleep(2)
+            # 2) App 内权限 sheet 的 Go to Settings
+            if self._present(self.GO_TO_SETTINGS_BTN, timeout=3):
+                self._tap_locator(self.GO_TO_SETTINGS_BTN, timeout=3)
+                acted = True
+                time.sleep(3)
+            # 3) 系统权限对话框 Allow（优先 resource-id，退化文本）
+            granted_ui = False
+            for _ in range(4):
+                if self._present(self.SYS_ALLOW_BTN, timeout=2):
+                    self._tap_locator(self.SYS_ALLOW_BTN, timeout=2)
+                    granted_ui = True
+                    acted = True
+                    time.sleep(1.5)
+                elif self._present(self.SYS_ALLOW_TEXT, timeout=1):
+                    self._tap_locator(self.SYS_ALLOW_TEXT, timeout=2)
+                    granted_ui = True
+                    acted = True
+                    time.sleep(1.5)
+                else:
+                    break
+            # 授予后已回到 Add New Device 并开始搜索 → 完成
+            if self._wait_any([self.DEVICE_FOUND, self.CONNECTING, self.SELECT_NETWORK],
+                              timeout=6) is not None:
+                return True
+            if not (granted_ui or self._present(self.SEARCH_AGAIN_BTN, timeout=1)):
+                break
+        # 兜底：adb 直接授予定位权限（UI 分支异常时保证配网不被权限阻断）
+        self._grant_location_via_adb()
+        # 再点一次 Search again 让其重新搜索
+        if self._present(self.SEARCH_AGAIN_BTN, timeout=2):
+            self._tap_locator(self.SEARCH_AGAIN_BTN, timeout=3)
+            acted = True
+        return acted
+
+    def _grant_location_via_adb(self):
+        """兜底：用 adb pm grant 授予定位权限（BLE 搜索的硬前置）。失败静默。"""
+        try:
+            from utils import adb_helper
+            serial = adb_helper.resolve_serial(self.driver)
+            for perm in ("android.permission.ACCESS_FINE_LOCATION",
+                         "android.permission.ACCESS_COARSE_LOCATION"):
+                try:
+                    __import__("subprocess").run(
+                        adb_helper.adb_args(serial) + ["shell", "pm", "grant", "com.afar.osaio", perm],
+                        capture_output=True, timeout=10)
+                except Exception:
+                    pass
+            print("已用 adb 兜底授予定位权限")
+        except Exception as e:
+            print(f"adb 兜底授予权限失败（忽略）: {e}")
 
     # ======================= 后续流程 =======================
 
