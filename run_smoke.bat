@@ -18,7 +18,7 @@ setlocal
 cd /d "%~dp0"
 
 REM 解析参数：--mail 开启报告邮件发送
-if /I "%~1"=="--mail" set "OSAIO_MAIL_SEND=1"
+if /I "%~1"=="--mail" set "OSAIO_MAIL_SEND=0"
 if defined OSAIO_MAIL_SEND echo [run_smoke] 报告邮件发送已开启（OSAIO_MAIL_SEND=%OSAIO_MAIL_SEND%）
 
 REM 优先用项目内 venv 的 python，否则用 PATH 里的 python
