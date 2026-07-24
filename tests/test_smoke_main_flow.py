@@ -6,10 +6,10 @@
   3. 退出登录 → 重新登录成功
   4. 配网成功（现场需有真实待配网设备 + mmm_test 2.4G WiFi；新装首次会先走定位权限授予）
   5. 出图成功（直播）
-  6. 订阅云存成功（切到 cloud 测试者账号完成年度订阅购买）
-  7. 云卡回放成功（切到 secondary 账号；依次验证 事件云回放 → 时间轴切换+滑动
+  6. IOT 设备推送消息正常（监听「配网开始→出图后」窗口内收到 OSAIO 侦测推送；紧接出图汇报）
+  7. 订阅云存成功（切到 cloud 测试者账号完成年度订阅购买）
+  8. 云卡回放成功（切到 secondary 账号；依次验证 事件云回放 → 时间轴切换+滑动
      → 卡回放(SD) → 云回放(Cloud) → 回到直播，每步均以“出图”判定）
-  8. IOT 设备推送消息正常（监听系统通知栏收到 OSAIO 侦测推送）
   9. 消息列表显示历史消息成功
   10. 退出登录成功
 
@@ -19,12 +19,14 @@
   - 各主功能相互独立：某步失败/跳过不应牵连无关步骤，后续照常执行。
   - 软步骤（失败/前置不满足 → 记 skipped 并继续，不中断整条流程）：
     · 步骤 4 配网 / 5 出图：强依赖现场硬件（待配网设备 + WiFi）；配网未成功则出图一并 skip。
-    · 步骤 6 订阅云存：需 cloud 测试者账号 + 可用支付源，购买失败软性跳过。
-    · 步骤 8 IoT 推送：需摄像头真实动静触发侦测，窗口内无新推送则软性跳过。
-  - 步骤 6/7 会切换账号（cloud / secondary），各自 force_login 先登出再登入。
-  - 云卡回放（步骤 7）需要“存在在线设备 + 云存订阅 + 历史录像/事件”的账号；主流程
+    · 步骤 6 IoT 推送：监听「配网开始→出图后」窗口，需摄像头真实动静触发侦测，无新推送则软性跳过。
+    · 步骤 7 订阅云存：需 cloud 测试者账号 + 可用支付源，购买失败软性跳过。
+  - 步骤 7/8 会切换账号（cloud / secondary），各自 force_login 先登出再登入；步骤8登录前会先把
+    OSAIO 拉回前台（云存付款走 Chrome，避免在浏览器页找不到登录表单）。
+  - 云卡回放（步骤 8）需要“存在在线设备 + 云存订阅 + 历史录像/事件”的账号；主流程
     新注册账号刚配网、无历史录像/事件，不满足前置，故该步切到 config/accounts.yaml 的
     secondary 账号（ocn03@bccto.cc，用户确认已满足条件）后再验证，复用 test_playback 同一套页面对象。
+  - IoT 推送（步骤 6）监听窗口＝配网起点（_network_config 记通知栏基线）→ 出图后（_live_view 结算）。
   - 每步结果通过 report_step 记录，报告里展开显示各步骤（passed/failed/skipped）。
 
 运行：
@@ -81,16 +83,19 @@ class TestSmokeMainFlow:
             - 失败（任意非 skip 异常）→ 记 failed 并向上抛出，整条 smoke 立即 fail（门禁语义）。
             - pytest.skip → 记 skipped 但**吞掉不再抛出**，让后续步骤照常执行
               （订阅云存 / IOT 推送等占位步骤不应中断整条流程；否则报告只能显示到跳过处为止）。
+            - 跳过/失败时抓当前 App 屏幕截图（并存 page_source）附到报告，便于事后定位现场。
             """
             print(f"\n===== 步骤: {name} =====")
             s = time.time()
             try:
                 fn()
             except pytest.skip.Exception as e:
-                report_step(name, "skipped", time.time() - s, str(e))
+                shot = self._capture(driver, name, "skipped")
+                report_step(name, "skipped", time.time() - s, str(e), screenshot=shot)
                 print(f"⏭  跳过（占位，流程继续）: {name} ({e})")
             except Exception as e:
-                report_step(name, "failed", time.time() - s, str(e))
+                shot = self._capture(driver, name, "failed")
+                report_step(name, "failed", time.time() - s, str(e), screenshot=shot)
                 print(f"✗ 失败: {name} -> {e}")
                 raise
             else:
@@ -101,6 +106,13 @@ class TestSmokeMainFlow:
         # 注册成功后保存，供步骤3重登使用
         self._email = _gen_temp_email()
         self._password = REGISTER_PASSWORD
+
+        # IoT 推送监听状态：改为「配网开始起听 → 直播出图后结束」（见 _network_config / _live_view /
+        # _iot_push）。基线在步骤4起点记，出图后结算，步骤8只汇报窗口内是否收到新侦测推送。
+        self._iot_listen = False
+        self._iot_serial = None
+        self._iot_baseline = 0
+        self._iot_new_when = 0
 
         # 注入报告“测试环境”信息（设备由 caps.yaml 兜底自动读取）
         report_env(测试邮箱=self._email,
@@ -114,18 +126,18 @@ class TestSmokeMainFlow:
         # SMOKE_NO_RESET=1 可跳过清数据（沿用现状，供特殊调试）。
         skip_reset = os.environ.get("SMOKE_NO_RESET") == "1"
         if not skip_reset:
-            step("0. 首次安装重置（pm clear）", lambda: self._fresh_install(driver))
+            step("首次安装重置（pm clear）", lambda: self._fresh_install(driver))
 
         # ---- 步骤 1：首次安装打开 → 引导页 ----
         # FRESH_INSTALL=1 时断言确实经过引导页；否则尽力而为。
         fresh = os.environ.get("FRESH_INSTALL") == "1" and not skip_reset
-        step("1. 打开 App 进入引导页", lambda: self._onboarding(login_page, fresh))
+        step("打开 App 进入引导页", lambda: self._onboarding(login_page, fresh))
 
         # ---- 步骤 2：注册新用户（自动登录）----
-        step("2. 注册新用户成功（自动登录）", lambda: self._register(driver, login_page))
+        step("注册新用户成功（自动登录）", lambda: self._register(driver, login_page))
 
         # ---- 步骤 3：退出登录 → 重新登录 ----
-        step("3. 退出后重新登录成功", lambda: self._logout_then_relogin(driver, login_page))
+        step("退出后重新登录成功", lambda: self._logout_then_relogin(driver, login_page))
 
         # ---- 步骤 4：配网（软性：现场无待配网设备等原因失败 → 记 skipped 并继续）----
         # 配网强依赖现场硬件（待配网设备处于配对模式 + mmm_test WiFi）。无设备时它不该阻断
@@ -133,26 +145,28 @@ class TestSmokeMainFlow:
         # 并继续；用 self._netcfg_ok 记录是否真的配网成功，供步骤5判断。
         self._netcfg_ok = False
         ncp = NetworkConfigPage(driver)
-        step("4. 配网成功", lambda: self._network_config(ncp))
+        step("配网成功", lambda: self._network_config(driver, ncp))
 
         # ---- 步骤 5：出图（依赖步骤4配网的设备；配网未成功则一并 skip）----
-        step("5. 出图成功（直播）", lambda: self._live_view(driver, ncp))
+        step("出图成功（直播）", lambda: self._live_view(driver, ncp))
 
-        # ---- 步骤 6：订阅云存（切到 cloud 测试者账号完成购买；软性跳过）----
-        step("6. 订阅云存成功", lambda: self._cloud_storage(driver, login_page, account))
+        # ---- 步骤 6：IOT 推送消息（紧接出图之后）----
+        # IoT 推送监听在「配网开始 → 出图后」窗口进行（见 _network_config/_live_view），故把
+        # 推送结算步骤紧跟在出图之后汇报，与监听窗口对齐（用户要求）。此后再切账号做云存/回放。
+        step("IOT 设备推送消息正常", lambda: self._iot_push(driver))
 
-        # ---- 步骤 7：云卡回放（切到 secondary 账号验证云/卡回放出图）----
-        step("7. 云卡回放成功（云/卡回放出图）",
+        # ---- 步骤 7：订阅云存（切到 cloud 测试者账号完成购买；软性跳过）----
+        step("订阅云存成功", lambda: self._cloud_storage(driver, login_page, account))
+
+        # ---- 步骤 8：云卡回放（切到 secondary 账号验证云/卡回放出图）----
+        step("云卡回放成功（云/卡回放出图）",
              lambda: self._cloud_sd_playback(driver, login_page, account))
 
-        # ---- 步骤 8：IOT 推送消息（监听系统通知栏收到 OSAIO 侦测推送）----
-        step("8. IOT 设备推送消息正常", lambda: self._iot_push(driver))
-
         # ---- 步骤 9：消息列表显示历史消息 ----
-        step("9. 消息列表显示历史消息成功", lambda: self._message_list(driver))
+        step("消息列表显示历史消息成功", lambda: self._message_list(driver))
 
         # ---- 步骤 10：退出登录 ----
-        step("10. 退出登录成功", lambda: self._final_logout(driver))
+        step("退出登录成功", lambda: self._final_logout(driver))
 
         print(f"\n===== 主功能 smoke 全流程完成，用时 {time.time() - t0:.1f}s =====")
 
@@ -183,6 +197,32 @@ class TestSmokeMainFlow:
             from utils.driver_helper import load_config
             return (load_config().get("android", {}) or {}).get("deviceName")
         except Exception:
+            return None
+
+    @staticmethod
+    def _capture(driver, step_name, status):
+        """跳过/失败时抓 App 屏幕截图（+page_source），返回截图路径供报告附图。
+
+        “等相关信息”：截图落 reports/screenshots/，page_source 落 reports/，均以步骤名+状态+
+        时间戳命名。任何异常都吞掉、返回 None——截图是辅助信息，绝不能反过来把用例搞挂。
+        """
+        try:
+            os.makedirs("reports/screenshots", exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            safe = "".join(c if c.isalnum() else "_" for c in str(step_name))[:40]
+            img_path = os.path.join("reports", "screenshots", f"step_{safe}_{status}_{ts}.png")
+            driver.save_screenshot(img_path)
+            # 附带 page_source（best-effort，失败忽略）
+            try:
+                with open(os.path.join("reports", f"step_{safe}_{status}_{ts}.xml"),
+                          "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+            except Exception:
+                pass
+            print(f"已保存步骤现场截图: {img_path}")
+            return img_path
+        except Exception as e:
+            print(f"保存步骤截图失败（忽略）: {e}")
             return None
 
     def _fresh_install(self, driver):
@@ -277,14 +317,18 @@ class TestSmokeMainFlow:
             account=self._email, password=self._password, force_login=True)
         assert home.is_home_displayed(), "重新登录后首页未显示"
 
-    def _network_config(self, ncp):
+    def _network_config(self, driver, ncp):
         """完整蓝牙配网（现场需有待配网设备）。
 
         软步骤语义：配网强依赖现场硬件（待配网设备处于配对模式 + mmm_test WiFi）。现场无设备
         或连接超时等**环境原因**不应阻断与之无关的主功能，故这里把任何配网失败**转成
         pytest.skip**（step() 会记 skipped 并继续），仅在真正配网成功时置 self._netcfg_ok=True，
         供步骤5（出图，依赖该设备）判断是否一并跳过。
+
+        另：在配网**开始**时开启 IoT 推送监听（记录通知栏基线 when），到步骤5直播出图后结束，
+        使侦测推送的监听窗口贴合“设备刚配网上线并出图”这段真实活动期（见 _live_view/_iot_push）。
         """
+        self._start_iot_listen(driver)
         try:
             # 前置：解绑已配网设备，保证设备可被重新搜到
             assert ncp.unbind_device_if_present(), "前置解绑设备失败（设备可能仍绑定）"
@@ -322,6 +366,8 @@ class TestSmokeMainFlow:
         home.dismiss_live_view_intro()
         assert ncp.verify_live_view(), "直播页出图异常（未检测到视频/码率/控制按钮）"
         home.dismiss_live_view_intro()
+        # 直播出图成功 → 结束 IoT 推送监听（结算窗口内是否收到新侦测推送，供步骤8汇报）
+        self._end_iot_listen()
         # 回到首页，便于后续消息列表步骤
         try:
             driver.back()
@@ -378,6 +424,15 @@ class TestSmokeMainFlow:
         acc = account("secondary")   # ocn03@bccto.cc / 123456（在线设备 GP5B）
         pb = PlaybackPage(driver)
 
+        # 前置：云存步骤会跳到 Chrome 浏览器付款页；无论购买成功/跳过，此处都可能仍停在浏览器。
+        # 必须先把 OSAIO 拉回前台，否则 smart_login 会在浏览器页找不到登录表单——历史现象：
+        # 把 Chrome 地址栏误当成账号输入框(instance 0)、无第二个输入框→密码框缺失而失败。
+        try:
+            driver.activate_app(APP_PACKAGE)
+            time.sleep(3)
+        except Exception as e:
+            print(f"拉回 OSAIO 前台失败（忽略，继续尝试登录）: {e}")
+
         # 切换到 secondary 账号（force_login 内部先登出当前会话再登入）
         home = login_page.smart_login(
             account=acc.account, password=acc.password, force_login=True)
@@ -393,33 +448,68 @@ class TestSmokeMainFlow:
         assert pb.back_to_live(), "回到直播未出图"
         print(f"云卡回放全部出图正常（账号 {acc.account}）")
 
-    def _iot_push(self, driver):
-        """IoT 推送验证：监听系统通知栏，收到 OSAIO 设备侦测推送即通过。
+    def _start_iot_listen(self, driver):
+        """配网开始时开启 IoT 推送监听：记录当前该 App 通知栏最新推送 when 作为基线。
 
         真机确认：OSAIO 侦测推送落在通知渠道 PUSH_NOTIFY_ID，title="Osaio Notice"，
-        text="Device <名称> <Motion|Sound> Detected"，每条带 when=<epoch ms>。设备在有
-        真实动静时才触发侦测（约每分钟一次），故本步：
-          1. 记录当前该 App 最新推送 when 作为基线；
-          2. 在监听窗口内轮询，出现比基线更新的推送 → 通过（说明期间收到新侦测推送）。
-        侦测是否触发取决于摄像头端的真实动静，无法按需保证；若窗口内无新推送，则**软性
-        跳过**（记 skipped 并继续），不误判为失败。窗口/开关可用环境变量覆盖：
-          OSAIO_IOT_PUSH_TIMEOUT（默认 150 秒）、OSAIO_SKIP_IOT_PUSH=1 直接跳过。
+        text="Device <名称> <Motion|Sound> Detected"，每条带 when=<epoch ms>。基线之后出现
+        更晚(when 更大)的推送即视为“监听窗口内收到新侦测”。OSAIO_SKIP_IOT_PUSH=1 时不起听。
         """
         if os.environ.get("OSAIO_SKIP_IOT_PUSH") == "1":
-            pytest.skip("OSAIO_SKIP_IOT_PUSH=1，跳过 IoT 推送验证")
+            return
         from utils import adb_helper
         serial = adb_helper.resolve_serial(driver)
         if not serial:
-            pytest.skip("无法确定 adb 目标设备，跳过 IoT 推送验证")
-        timeout = int(os.environ.get("OSAIO_IOT_PUSH_TIMEOUT", "150"))
-        baseline = adb_helper.latest_push_when(serial)
-        print(f"IoT 推送基线 when={baseline}，监听 {timeout}s 等待新的侦测推送…")
-        new_when = adb_helper.wait_for_new_push(serial, baseline, timeout=timeout, interval=5)
-        if not new_when:
-            # 期间设备未触发新侦测（取决于现场真实动静），软性跳过、不阻断后续
-            pytest.skip(f"{timeout}s 内未收到新的侦测推送（设备需真实动静触发），跳过并继续")
-        text = adb_helper.latest_push_text(serial) or ""
-        print(f"收到新的 IoT 侦测推送：when={new_when} {text}")
+            print("无法确定 adb 目标设备，本轮不开启 IoT 推送监听")
+            return
+        self._iot_serial = serial
+        self._iot_baseline = adb_helper.latest_push_when(serial)
+        self._iot_listen = True
+        print(f"IoT 推送监听已开始（配网起），基线 when={self._iot_baseline}")
+
+    def _end_iot_listen(self):
+        """直播出图后结束 IoT 推送监听：结算窗口内该 App 最新推送 when（供步骤8比对基线）。"""
+        if not self._iot_listen or not self._iot_serial:
+            return
+        from utils import adb_helper
+        self._iot_new_when = adb_helper.latest_push_when(self._iot_serial)
+        print(f"IoT 推送监听已结束（出图后），窗口内最新 when={self._iot_new_when}"
+              f"（基线 {self._iot_baseline}）")
+
+    def _iot_push(self, driver):
+        """IoT 推送验证：汇报「配网开始 → 直播出图后」监听窗口内是否收到新的 OSAIO 侦测推送。
+
+        监听不再在本步单开窗口，而是贴合设备真实活动期：_network_config 起点起听（记基线），
+        _live_view 出图后结束（记窗口末最新 when）。本步只做结算判定：
+          - OSAIO_SKIP_IOT_PUSH=1 → 跳过；
+          - 未开启监听（配网/出图被软性跳过，无设备触发侦测）→ 跳过并说明；
+          - 窗口末最新 when > 基线 → 通过（期间收到新侦测推送）；
+          - 否则默认软性跳过；可用 OSAIO_IOT_PUSH_TIMEOUT>0 在本步再补听一小段兜底。
+        侦测是否触发取决于摄像头端的真实动静，无法按需保证，故未命中记 skipped 不误判为失败。
+        """
+        if os.environ.get("OSAIO_SKIP_IOT_PUSH") == "1":
+            pytest.skip("OSAIO_SKIP_IOT_PUSH=1，跳过 IoT 推送验证")
+        if not self._iot_listen or not self._iot_serial:
+            pytest.skip("配网/出图未进行，未开启 IoT 监听（无新配网设备触发侦测），跳过并继续")
+        from utils import adb_helper
+        # 出图后若尚未结算（异常情况）补一次
+        if not self._iot_new_when:
+            self._iot_new_when = adb_helper.latest_push_when(self._iot_serial)
+        if self._iot_new_when > (self._iot_baseline or 0):
+            text = adb_helper.latest_push_text(self._iot_serial) or ""
+            print(f"监听窗口内收到新的 IoT 侦测推送：when={self._iot_new_when} {text}")
+            return
+        # 窗口内未见新推送：可选再补听一小段（默认 0=不补听，直接软跳过）
+        grace = int(os.environ.get("OSAIO_IOT_PUSH_TIMEOUT", "0"))
+        if grace > 0:
+            print(f"窗口内暂无新侦测推送，补听 {grace}s…")
+            new_when = adb_helper.wait_for_new_push(
+                self._iot_serial, self._iot_baseline or 0, timeout=grace, interval=5)
+            if new_when:
+                text = adb_helper.latest_push_text(self._iot_serial) or ""
+                print(f"补听收到新的 IoT 侦测推送：when={new_when} {text}")
+                return
+        pytest.skip("配网→出图监听窗口内未收到新的侦测推送（设备需真实动静触发），跳过并继续")
 
     def _message_list(self, driver):
         """进入消息/事件列表，验证列表页出现。"""

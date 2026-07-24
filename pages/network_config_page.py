@@ -58,6 +58,9 @@ class NetworkConfigPage(BasePage):
     #   → 返回后可正常搜索。
     ADD_DEVICE_PAGE = _tm("Add New Device|添加新设备|添加设备")
     NO_DEVICE_FOUND = _tm("No device found|未找到设备|没有找到设备|未发现设备")
+    # “设备已找到”页底部“手动添加设备”入口（作为设备卡区间的下界锚点）
+    ADD_MANUALLY_BTN = (AppiumBy.ACCESSIBILITY_ID, "add-device-manually-button")
+    ADD_MANUALLY_TEXT = _tm("Add device manually|Add it manually|手动添加|手动配网|Device not found")
     SEARCH_AGAIN_BTN = _tm("Search again|重新搜索|再次搜索|重新扫描|重试")
     PERM_SHEET_MARKER = _tm("require the following access permissions|following permissions|需要以下权限|访问权限|权限")
     GO_TO_SETTINGS_BTN = _tm("Go to Settings?|Go to Setting|去设置|前往设置|去开启|去授权")
@@ -91,6 +94,34 @@ class NetworkConfigPage(BasePage):
         cx = int(r["x"] + r["width"] / 2)
         cy = int(r["y"] + r["height"] / 2)
         self.driver.tap([(cx, cy)])
+
+    def _first_rect(self, locator):
+        """返回定位器首个元素的 rect（{x,y,width,height}）；找不到/异常返回 None。
+
+        用于以文本里程碑作锚点划定“设备卡区间”（比写死坐标更稳）。
+        """
+        try:
+            els = self.driver.find_elements(*locator)
+        except Exception:
+            return None
+        if not els:
+            return None
+        try:
+            return els[0].rect
+        except Exception:
+            return None
+
+    def _window_size(self):
+        """屏幕尺寸 (width, height)，缓存一次。取不到用 1440x3120 兜底。"""
+        wh = getattr(self, "_win_wh", None)
+        if wh is None:
+            try:
+                sz = self.driver.get_window_size()
+                wh = (int(sz["width"]), int(sz["height"]))
+            except Exception:
+                wh = (1440, 3120)
+            self._win_wh = wh
+        return wh
 
     def _present(self, locator, timeout=1):
         """否定探测：压低隐式等待，find_elements 找不到即刻返回 False。"""
@@ -290,7 +321,19 @@ class NetworkConfigPage(BasePage):
     # ======================= 后续流程 =======================
 
     def select_first_found_device(self, timeout=20):
-        """“设备已找到”页选中列表第一个设备（自动进入连接中）。
+        """“设备已找到 / Device found. Tap to continue”页选中搜到的设备（自动进入连接中）。
+
+        真机确认：该页可能搜到**一个或多个**设备（如 GT1PRO、P1），每个是一张高瘦卡片；
+        点中任一设备卡即自动进入“正在连接”，**无需**再点右侧的继续箭头。历史 bug：旧逻辑
+        取“最靠上的宽可点击元素”，实际命中的是透过页面渗出的首页整宽设备卡（page_source
+        双层叠加），从未点到真正的设备卡 → 永远进不了连接中。
+
+        现改为以文本里程碑锚定“设备卡区间”并按几何特征筛选：
+          - 上界 = “Device found”文本 y（拿不到用 800）
+          - 下界 = “Add device manually”按钮 y（拿不到用屏高*0.65）
+          - 设备卡 = 该区间内 clickable 的 ViewGroup，height>300 且 width<屏宽*0.6
+            （排除渗出的整宽首页卡；右侧继续箭头是小方块 height<250，天然被排除）
+        选中最左（靠上）的一张即可（多设备时任选其一都能进入连接）。
 
         入口 A（弹窗点添加设备）通常已直接连接、跳过此页；此时若已在连接中/网络选择页
         则视为已通过，直接返回 True。
@@ -304,18 +347,62 @@ class NetworkConfigPage(BasePage):
                 return True
             self._save_diagnostics("device_found_missing")
             return False
-        # 取页面中部第一个较大的可点击项作为设备行
-        rows = self.driver.find_elements(
-            AppiumBy.ANDROID_UIAUTOMATOR,
-            'new UiSelector().clickable(true)')
-        rows = [e for e in rows if _row_is_device_candidate(e)]
-        if not rows:
+
+        cards = self._find_found_device_cards()
+        if not cards:
             self._save_diagnostics("no_device_rows")
             return False
-        rows.sort(key=lambda e: (e.rect or {}).get("y", 0))
-        self._coordinate_tap(rows[0])
+        print(f"“设备已找到”页搜到 {len(cards)} 个设备卡，选中最左上一个")
+        # 选中最左（同列取最上）的设备卡；点中即自动进入连接
+        cards.sort(key=lambda r: (r["y"], r["x"]))
+        self._coordinate_tap_rect(cards[0])
         time.sleep(3)
-        return True
+        # 确认已推进（进入连接中/网络选择/密码页/连接失败页任一即视为已离开设备列表）
+        if self._wait_any([self.CONNECTING, self.SELECT_NETWORK,
+                           self.WIFI_PWD_PAGE, self.CONNECT_FAILED], timeout=15) is not None:
+            return True
+        # 少数设备卡首点未响应：再点一次同一张卡兜底
+        self._coordinate_tap_rect(cards[0])
+        time.sleep(3)
+        if self._wait_any([self.CONNECTING, self.SELECT_NETWORK,
+                           self.WIFI_PWD_PAGE, self.CONNECT_FAILED], timeout=15) is not None:
+            return True
+        self._save_diagnostics("device_selected_no_advance")
+        return False
+
+    def _coordinate_tap_rect(self, rect):
+        """坐标点击一个 rect（{x,y,width,height}）中心。"""
+        cx = int(rect["x"] + rect["width"] / 2)
+        cy = int(rect["y"] + rect["height"] / 2)
+        self.driver.tap([(cx, cy)])
+
+    def _find_found_device_cards(self):
+        """在“设备已找到”页用锚点+尺寸筛出搜到的设备卡 rect 列表（可能一个或多个）。"""
+        w, h = self._window_size()
+        # 区间上界：Device found 文本；下界：Add device manually 按钮/文本
+        top_rect = self._first_rect(self.DEVICE_FOUND)
+        band_top = (top_rect["y"] + top_rect["height"]) if top_rect else 800
+        bot_rect = (self._first_rect(self.ADD_MANUALLY_BTN)
+                    or self._first_rect(self.ADD_MANUALLY_TEXT))
+        band_bottom = bot_rect["y"] if bot_rect else int(h * 0.65)
+        if band_bottom <= band_top:  # 锚点异常时退回宽区间
+            band_bottom = int(h * 0.65)
+
+        vgs = self.driver.find_elements(
+            AppiumBy.ANDROID_UIAUTOMATOR,
+            'new UiSelector().className("android.view.ViewGroup").clickable(true)')
+        cards = []
+        for e in vgs:
+            try:
+                r = e.rect
+            except Exception:
+                continue
+            cy = r["y"] + r["height"] / 2
+            # 设备卡：落在区间内、够高的卡片、且非整宽（排除渗出的首页卡与右侧小方块箭头）
+            if (band_top <= cy <= band_bottom
+                    and r["height"] > 300 and r["width"] < w * 0.6):
+                cards.append(r)
+        return cards
 
     def wait_connecting_result(self, timeout=40):
         """等待连接结果：成功进入网络选择页，失败进入“连接失败”页（视为失败）。"""
@@ -499,12 +586,3 @@ class NetworkConfigPage(BasePage):
             return None
         cards.sort()
         return cards[0][1]
-
-
-def _row_is_device_candidate(el):
-    """判断某可点击元素是否像“设备列表行”（中部、较宽）。"""
-    try:
-        r = el.rect
-    except Exception:
-        return False
-    return 500 < r["y"] < 2300 and r["width"] > 200

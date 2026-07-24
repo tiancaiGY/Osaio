@@ -106,16 +106,18 @@ _report_generator = None
 _current_test_steps = []
 
 
-def _record_step(step_name, status, duration=0, message=None):
+def _record_step(step_name, status, duration=0, message=None, screenshot=None):
     """把一个步骤结果追加到当前用例的步骤缓冲（报告里会展开显示）。
 
+    screenshot：跳过/失败时抓的 App 现场截图路径（可选），报告结果表会渲染为缩略图。
     任何异常都吞掉——报告记录绝不能影响用例本身的通过/失败。
     """
     global _report_generator, _current_test_steps
     try:
         if _report_generator is not None:
             _current_test_steps.append(
-                _report_generator.add_test_step(step_name, status, duration, message)
+                _report_generator.add_test_step(
+                    step_name, status, duration, message, screenshot=screenshot)
             )
     except Exception:
         pass
@@ -123,9 +125,9 @@ def _record_step(step_name, status, duration=0, message=None):
 
 @pytest.fixture
 def report_step():
-    """给用例记录步骤级结果的辅助：report_step("步骤名", "passed", 1.2, "备注")。
+    """给用例记录步骤级结果的辅助：report_step("步骤名", "passed", 1.2, "备注", screenshot=路径)。
 
-    步骤会在报告的该用例条目下展开显示（passed/failed/skipped）。
+    步骤会在报告的该用例条目下展开显示（passed/failed/skipped）；带截图的行显示缩略图。
     """
     return _record_step
 

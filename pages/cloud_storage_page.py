@@ -40,6 +40,9 @@ class CloudStoragePage(BasePage):
                    'new UiSelector().textMatches("(?i).*(Annual subscription|年度订阅|年付).*")')
     # 付款页已存在支付源卡号（默认测试卡 4242）
     SAVED_CARD_4242 = _tc("4242")
+    # 付款页底部“Subscribe”按钮（Chrome WebView，resource-id=subscribe-button）；
+    # 仅在选中支付源后才变蓝可点，未选中时点它无效（会触发文本选择/搜索弹窗）。
+    SUBSCRIBE_BTN = (AppiumBy.ID, "subscribe-button")
     # 付款成功提示（中英兼容，尽量宽松）
     PAY_SUCCESS = (AppiumBy.ANDROID_UIAUTOMATOR,
                    'new UiSelector().textMatches("(?i).*(success|succeeded|paid|payment complete|订阅成功|支付成功|购买成功).*")')
@@ -177,22 +180,38 @@ class CloudStoragePage(BasePage):
     def pay_with_saved_card(self, timeout=60):
         """付款页：选中已存在支付源 ************4242 → 点亮的“Subscribe”→ 等待支付成功。
 
+        关键（真机+用户确认）：付款页是 Chrome WebView 的单选支付列表，**单选圆点在卡号行最左**，
+        网页 label 不整体可点——只点卡号文本（行右侧）**不会选中**支付源，Subscribe 会一直是
+        灰色不可点（此时去点它只会触发 Android 文本选择/“Tap to see search results”弹窗）。
+        故这里按卡号行的 y、行首的 x 坐标去**点单选圆点**选中支付源，选中后 Subscribe 才变蓝可点。
+
         :return: True 表示检测到支付成功提示
         """
-        # 选中已保存的 4242 卡（坐标点其行）
-        if not self._tap_text_coord(self.SAVED_CARD_4242, timeout=10):
+        # 1) 等待已保存卡号 4242 出现，取其所在行的坐标
+        if not self.is_displayed(*self.SAVED_CARD_4242, timeout=10):
             self._save_diag("no_saved_card_4242")
             return False
-        time.sleep(2)
-        # 点击底部 Subscribe（选中卡后应亮起）；取 y 最大的那个（页面底部）
-        els = self.driver.find_elements(*self.SUBSCRIBE_TEXT)
+        els = self.driver.find_elements(*self.SAVED_CARD_4242)
         if not els:
+            self._save_diag("no_saved_card_4242")
+            return False
+        row = els[0].rect
+        cy = int(row["y"] + row["height"] / 2)
+        try:
+            w = int(self.driver.get_window_size()["width"])
+        except Exception:
+            w = 1440
+        # 2) 选中支付源：点行首的单选圆点（约屏宽 10% 处，与卡号同一行 y），兜底再点整行
+        self.driver.tap([(int(w * 0.10), cy)])
+        time.sleep(1)
+        self._coord_tap(els[0])
+        time.sleep(2)
+        # 3) 点亮后的 Subscribe（优先 resource-id=subscribe-button，退化取底部 Subscribe 文案）
+        if not self._tap_subscribe_button():
             self._save_diag("no_pay_subscribe")
             return False
-        target = max(els, key=lambda e: (e.location or {}).get("y", 0))
-        self._coord_tap(target)
         print("已点击付款页 Subscribe，等待支付结果…")
-        # 等待支付成功提示
+        # 4) 等待支付成功提示
         deadline = time.time() + timeout
         while time.time() < deadline:
             if self._present(self.PAY_SUCCESS, timeout=1):
@@ -206,6 +225,20 @@ class CloudStoragePage(BasePage):
             time.sleep(2)
         self._save_diag("no_pay_success")
         return False
+
+    def _tap_subscribe_button(self):
+        """坐标点击付款页底部 Subscribe（选中支付源后才可点）。
+
+        优先 resource-id=subscribe-button；退化取所有“Subscribe”文案里 y 最大（最底部）的那个。
+        """
+        els = self.driver.find_elements(*self.SUBSCRIBE_BTN)
+        if not els:
+            els = self.driver.find_elements(*self.SUBSCRIBE_TEXT)
+        if not els:
+            return False
+        target = max(els, key=lambda e: (e.location or {}).get("y", 0))
+        self._coord_tap(target)
+        return True
 
     def purchase_cloud_storage_annual(self):
         """一站式：从账户页走完“云存年度订阅 + 已存卡支付成功”。返回是否成功。"""

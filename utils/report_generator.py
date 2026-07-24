@@ -181,6 +181,18 @@ class TestReportGenerator:
         return (s.replace("&", "&amp;").replace("<", "&lt;")
                  .replace(">", "&gt;").replace('"', "&quot;"))
 
+    def _screenshot_cell(self, path) -> str:
+        """把截图路径渲染成结果表“截图”单元格内容：缩略图链接（点击看原图）；无图返回占位。
+
+        路径统一转成相对 report_dir 的正斜杠形式，保证 HTML 在任意平台/浏览器都能加载。
+        """
+        if not path or not os.path.exists(path):
+            return '<span class="noshot">—</span>'
+        rel = os.path.relpath(path, self.report_dir).replace(os.sep, "/")
+        rel_esc = self._esc(rel)
+        return (f'<a href="{rel_esc}" target="_blank">'
+                f'<img src="{rel_esc}" alt="现场截图" /></a>')
+
     def collect_environment(self) -> Dict[str, str]:
         """收集测试环境信息（尽力而为，任何缺失都用占位符，绝不抛出）。
 
@@ -261,6 +273,7 @@ class TestReportGenerator:
                         "name": s.get("step_name") or "(未命名步骤)",
                         "status": (s.get("status") or "").lower(),
                         "message": s.get("message") or "",
+                        "screenshot": s.get("screenshot"),
                     })
             else:
                 # 无分步骤的用例：整条用例作为一行，错误信息作说明
@@ -268,6 +281,7 @@ class TestReportGenerator:
                     "name": result.get("test_name") or "(用例)",
                     "status": (result.get("status") or "").lower(),
                     "message": result.get("error_message") or "",
+                    "screenshot": result.get("screenshot_path"),
                 })
         return rows
 
@@ -299,13 +313,16 @@ class TestReportGenerator:
             # 说明只取首行：失败/跳过的原始 message 常带多行 assert 堆栈，表格里只需第一句
             msg = (r["message"] or "").strip()
             msg_first = msg.splitlines()[0] if msg else ""
+            # 截图列：跳过/失败步骤附 App 现场截图缩略图（点击看原图）；无图留空
+            shot_cell = self._screenshot_cell(r.get("screenshot"))
             result_rows.append(
                 f'<tr><td>{i}</td><td>{self._esc(r["name"])}</td>'
                 f'<td><span class="tag {cls}">{label}</span></td>'
-                f'<td>{self._esc(msg_first)}</td></tr>'
+                f'<td>{self._esc(msg_first)}</td>'
+                f'<td class="shot">{shot_cell}</td></tr>'
             )
         result_rows_html = "\n".join(result_rows) or \
-            '<tr><td colspan="4" style="text-align:center;color:#86868b;">暂无测试步骤</td></tr>'
+            '<tr><td colspan="5" style="text-align:center;color:#86868b;">暂无测试步骤</td></tr>'
 
         # 结论文字
         if total == 0:
@@ -344,6 +361,9 @@ tr:nth-child(even) {{ background: #f9f9f9; }}
 .tag-fail {{ background: #fee2e2; color: #991b1b; }}
 .tag-skip {{ background: #fef3c7; color: #92400e; }}
 .pct {{ font-size: 48px; font-weight: 700; }}
+td.shot {{ text-align: center; }}
+td.shot img {{ max-height: 90px; max-width: 140px; border-radius: 6px; border: 1px solid #e0e0e0; }}
+td.shot .noshot {{ color: #c7c7cc; }}
 </style>
 </head>
 <body>
@@ -360,7 +380,7 @@ tr:nth-child(even) {{ background: #f9f9f9; }}
 <h2>测试结果</h2>
 <table>
 <thead>
-<tr><th>#</th><th>步骤</th><th>状态</th><th>说明</th></tr>
+<tr><th>#</th><th>步骤</th><th>状态</th><th>说明</th><th>截图</th></tr>
 </thead>
 <tbody>
 {result_rows_html}
